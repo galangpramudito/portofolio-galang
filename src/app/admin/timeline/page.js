@@ -31,7 +31,21 @@ const timelineFields = [
   { key: 'highlights', label: 'Poin Kunci & Pencapaian (Pisahkan dengan tanda | )', type: 'tags', delimiter: '|', multiline: true, rows: 3, group: 'Konten & Cerita', placeholder: 'Poin pencapaian 1 | Poin pencapaian 2' },
 ]
 
-const timelineColumns = ['role', 'institution', 'period', 'category']
+const timelineColumns = [
+  { key: 'role', label: 'Peran' },
+  { key: 'institution', label: 'Instansi' },
+  { key: 'period', label: 'Periode' },
+  {
+    key: 'category',
+    label: 'Kategori',
+    render: (val) => (
+      <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
+        {val || '-'}
+      </span>
+    ),
+  },
+  { key: 'status', label: 'Status' },
+]
 
 const relatedSection = {
   table: 'timeline_images',
@@ -39,6 +53,7 @@ const relatedSection = {
   label: 'Foto & Dokumentasi Penunjang',
   addLabel: '+ Tambah Foto Penunjang',
   hasCaption: true,
+  bucket: 'thumbnails',
   showWhen: () => true,
 }
 
@@ -46,9 +61,12 @@ export default function TimelineAdminPage() {
   return (
     <CrudManager
       table="timeline"
+      title="Perjalanan"
+      description="Kelola riwayat pendidikan, pengalaman kerja, dan milestone karier Anda."
       fields={timelineFields}
       columns={timelineColumns}
       relatedSection={relatedSection}
+      searchFields={['role', 'institution', 'period']}
     />
   )
 }

@@ -286,6 +286,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
       if (e.key === "Escape") {
         setSelectedVideo(null);
         setIsCvModalOpen(false);
+        setIsCvLanguageModalOpen(false);
         setSelectedCert(null);
         setIsPreviewModalOpen(false);
       }
@@ -296,6 +297,21 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  const isAnyModalOpen = Boolean(
+    selectedVideo || isCvModalOpen || isCvLanguageModalOpen || isPreviewModalOpen || selectedCert
+  );
+
+  useEffect(() => {
+    if (isAnyModalOpen) {
+      window.__lenis?.stop();
+    } else {
+      window.__lenis?.start();
+    }
+    return () => {
+      window.__lenis?.start();
+    };
+  }, [isAnyModalOpen]);
 
   useEffect(() => {
     // ✅ PERF: Defer GSAP animations sampai setelah LCP
@@ -529,11 +545,11 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
             <div className="flex flex-wrap items-center gap-4">
               <Link
                 href="/about"
-                className="inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-medium text-sm hover:bg-white/10 hover:border-accent/40 transition-all group shadow-sm"
+                className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-full bg-accent text-bg-dark font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl hover:opacity-90 group"
               >
-                <i className="ri-user-search-line text-accent text-base"></i>
+                <i className="ri-user-search-line text-base"></i>
                 <span>Lihat Cerita &amp; Timeline Lengkap</span>
-                <i className="ri-arrow-right-line text-gray-400 group-hover:text-accent group-hover:translate-x-1 transition-all"></i>
+                <i className="ri-arrow-right-line group-hover:translate-x-1 transition-transform"></i>
               </Link>
             </div>
           </div>
@@ -743,7 +759,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
                             )}
                             {spotlight.demo_url && (
                               <a href={spotlight.demo_url} target="_blank" rel="noopener noreferrer" className="group/btn inline-flex items-center gap-3 bg-accent text-bg-dark font-bold text-sm px-6 py-2.5 rounded-full hover:scale-[1.02] active:scale-[0.97] transition-all duration-500">
-                                <span>Live Demo</span>
+                                <span>Kunjungi</span>
                                 <span className="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-[0.5px] group-hover/btn:scale-105 transition-all duration-300">
                                   <i className="ri-external-link-line text-sm"></i>
                                 </span>
@@ -811,7 +827,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
                                     )}
                                     {project.demo_url && (
                                       <a href={project.demo_url} target="_blank" rel="noopener noreferrer" className="group/btn inline-flex items-center gap-2 bg-accent text-bg-dark font-semibold text-xs px-5 py-2.5 rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all">
-                                        <span>Demo</span>
+                                        <span>Kunjungi</span>
                                       </a>
                                     )}
                                     {project.id && (

@@ -160,6 +160,17 @@ export default function ProjectDetailClient({ project }) {
   const isVideo = ["video-editing", "video"].includes(project.project_type);
   const hasImages = project.images && project.images.length > 0;
 
+  useEffect(() => {
+    if (screenshotIndex !== null || selectedVideo) {
+      window.__lenis?.stop();
+    } else {
+      window.__lenis?.start();
+    }
+    return () => {
+      window.__lenis?.start();
+    };
+  }, [screenshotIndex, selectedVideo]);
+
   return (
     <main className="min-h-[100dvh] bg-bg-dark text-white relative overflow-x-hidden">
 
@@ -242,7 +253,7 @@ export default function ProjectDetailClient({ project }) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-sm font-bold text-bg-dark bg-accent px-5 py-2.5 rounded-xl hover:scale-105 transition-transform"
             >
-              <i className="ri-external-link-line" /> Demo
+              <i className="ri-external-link-line" /> URL terkait
             </a>
           )}
           {project.play_store_url && (

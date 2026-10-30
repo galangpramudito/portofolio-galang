@@ -1,23 +1,13 @@
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { SESSION_COOKIE } from '@/lib/session'
 
-export async function POST(req) {
+export async function POST() {
   try {
-    // Verify the user is actually logged in before logging out
-    const session = req.cookies.get('admin_session')?.value
-    
-    if (!session) {
-      return NextResponse.json(
-        { error: 'No active session' },
-        { status: 400 }
-      )
-    }
-
+    // Always clear the cookie; logging out without a session is not an error
     const cookieStore = await cookies()
-    
-    // Delete the session cookie
-    cookieStore.delete('admin_session')
-    
+    cookieStore.delete(SESSION_COOKIE)
+
     return NextResponse.json({ ok: true, message: 'Logged out successfully' })
   } catch (error) {
     console.error('Logout error:', error)

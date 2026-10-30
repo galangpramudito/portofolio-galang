@@ -2,26 +2,43 @@
 
 import { useState, useEffect } from 'react'
 import CrudManager from '@/app/admin/CrudManager'
+import { useToast } from '@/app/admin/components/ToastProvider'
+import { useSafeNavigation } from '@/app/admin/hooks/useNavigation'
+import { apiRequest } from '@/app/admin/utils/api'
 
 export default function ProjectsPage() {
   const [types, setTypes] = useState([])
   const [loading, setLoading] = useState(true)
+  const toast = useToast()
+  const { redirectToLogin } = useSafeNavigation()
 
   useEffect(() => {
-    (async () => {
+    let ignore = false
+    async function loadTypes() {
       try {
-        const res = await fetch('/api/admin/project_types', { credentials: 'include' })
-        if (res.ok) {
-          const data = await res.json()
+        const data = await apiRequest('/api/admin/project_types', {
+          fallback: 'Gagal memuat kategori proyek',
+        })
+        if (!ignore && Array.isArray(data)) {
           setTypes(data)
         }
       } catch (err) {
-        console.error('Failed to load project types:', err)
+        if (err.status === 401) {
+          redirectToLogin()
+          return
+        }
+        if (!ignore) {
+          toast.error(err.message || 'Gagal memuat kategori proyek')
+        }
       } finally {
-        setLoading(false)
+        if (!ignore) setLoading(false)
       }
-    })()
-  }, [])
+    }
+    loadTypes()
+    return () => {
+      ignore = true
+    }
+  }, [toast, redirectToLogin])
 
   if (loading) {
     return (
@@ -52,28 +69,67 @@ export default function ProjectsPage() {
     { key: 'thumbnail_url', label: 'Thumbnail / Cover Image', type: 'image', group: 'Informasi Umum' },
     
     // URLs for developers / apps
-    { key: 'github_url', label: 'GitHub URL', type: 'url', group: 'Tautan & Eksternal' },
-    { key: 'demo_url', label: 'Demo URL (Web)', type: 'url', group: 'Tautan & Eksternal' },
-    { key: 'play_store_url', label: 'Play Store URL', type: 'url', group: 'Tautan & Eksternal' },
-    { key: 'apk_url', label: 'Download APK URL', type: 'url', group: 'Tautan & Eksternal' },
-    
+    {
+      key: 'github_url',
+      label: 'GitHub URL',
+      type: 'url',
+      group: 'Tautan & Eksternal',
+      showWhen: (formData) => !['video-editing', 'video', 'desain', 'design'].includes(getSelectedTypeSlug(formData)),
+    },
+    {
+      key: 'demo_url',
+      label: 'Demo URL (Web)',
+      type: 'url',
+      group: 'Tautan & Eksternal',
+      showWhen: (formData) => !['video-editing', 'video'].includes(getSelectedTypeSlug(formData)),
+    },
+    {
+      key: 'play_store_url',
+      label: 'Play Store URL',
+      type: 'url',
+      group: 'Tautan & Eksternal',
+      showWhen: (formData) => ['aplikasi', 'android'].includes(getSelectedTypeSlug(formData)),
+    },
+    {
+      key: 'apk_url',
+      label: 'Download APK URL',
+      type: 'url',
+      group: 'Tautan & Eksternal',
+      showWhen: (formData) => ['aplikasi', 'android'].includes(getSelectedTypeSlug(formData)),
+    },
+
     // Video fields
-    { key: 'video_url', label: 'URL Video (Drive/YouTube/Vimeo)', type: 'url', group: 'Tautan & Eksternal' },
-    { key: 'platform', label: 'Platform Video', type: 'select', options: ['youtube', 'drive', 'vimeo'], group: 'Tautan & Eksternal' },
-    
-    // General status
+    {
+      key: 'video_url',
+      label: 'URL Video (Drive/YouTube/Vimeo)',
+      type: 'url',
+      group: 'Tautan & Eksternal',
+      showWhen: (formData) => ['video-editing', 'video'].includes(getSelectedTypeSlug(formData)),
+    },
+    {
+      key: 'platform',
+      label: 'Platform Video',
+      type: 'select',
+      options: ['youtube', 'drive', 'vimeo'],
+      group: 'Tautan & Eksternal',
+      showWhen: (formData) => ['video-editing', 'video'].includes(getSelectedTypeSlug(formData)),
+    },
+
+    // General status & visibility
     { key: 'status', label: 'Status', type: 'select', options: ['completed', 'wip', 'private'], group: 'Visibilitas & Status' },
+    { key: 'featured', label: 'Tampilkan sebagai Featured di Beranda', type: 'checkbox', group: 'Visibilitas & Status' },
   ]
 
   const projectsColumns = [
+    { key: 'thumbnail_url', label: 'Thumbnail' },
     { key: 'title', label: 'Judul' },
-    { 
-      key: 'project_type_id', 
+    {
+      key: 'project_type_id',
       label: 'Jenis Project',
       render: (val) => {
         const type = types.find(t => String(t.id) === String(val))
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-600/20 text-blue-300 border border-blue-500/30">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
             <i className="ri-code-box-line"></i>
             {type ? type.name : '-'}
           </span>
@@ -89,12 +145,15 @@ export default function ProjectsPage() {
     label: 'Screenshots / Galeri Gambar',
     addLabel: '+ Tambah Gambar',
     hasCaption: true,
+    bucket: 'thumbnails',
     showWhen: (formData) => ['aplikasi', 'desain'].includes(getSelectedTypeSlug(formData)) || !!formData.project_type_id,
   }
 
   return (
     <CrudManager
       table="projects"
+      title="Proyek"
+      description="Kelola portofolio aplikasi, website, desain, dan video Anda."
       fields={projectsFields}
       columns={projectsColumns}
       relatedSection={relatedSection}
@@ -104,6 +163,7 @@ export default function ProjectsPage() {
         options: [{ value: 'all', label: 'Semua' }, ...types.map(t => ({ value: String(t.id), label: t.name }))]
       }}
       enableFeaturedDrag={true}
+      searchFields={['title', 'description']}
     />
   )
 }

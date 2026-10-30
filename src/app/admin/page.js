@@ -1,5 +1,28 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { SESSION_COOKIE, verifySessionToken } from '@/lib/session'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
+
+// Live counts — never prerender at build time
+export const dynamic = 'force-dynamic'
+
+const METRICS = [
+  { key: 'projects', label: 'Total Proyek', href: '/admin/projects', icon: 'ri-folder-open-line', bg: 'ri-code-box-line', color: 'blue' },
+  { key: 'certificates', label: 'Total Sertifikat', href: '/admin/certificates', icon: 'ri-award-fill', bg: 'ri-award-line', color: 'emerald' },
+  { key: 'timeline', label: 'Perjalanan', href: '/admin/timeline', icon: 'ri-route-line', bg: 'ri-road-map-line', color: 'violet' },
+  { key: 'skills', label: 'Skills', href: '/admin/skills', icon: 'ri-tools-line', bg: 'ri-stack-line', color: 'rose' },
+  { key: 'project_types', label: 'Kategori Konten', href: '/admin/project_types', icon: 'ri-list-settings-line', bg: 'ri-layout-grid-line', color: 'amber' },
+]
+
+// Static class map so Tailwind can see every class
+const COLOR_CLASSES = {
+  blue: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+  emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+  violet: 'bg-violet-500/10 border-violet-500/20 text-violet-400',
+  rose: 'bg-rose-500/10 border-rose-500/20 text-rose-400',
+  amber: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
+}
 
 function timeAgo(dateString) {
   if (!dateString) return ''
@@ -20,30 +43,58 @@ function timeAgo(dateString) {
   return 'baru saja'
 }
 
+async function loadDashboardMetrics() {
+  const startedAt = Date.now()
+  const countTables = METRICS.filter(m => m.key !== 'projects').map(m => m.key)
+  const [projectsRes, ...countResults] = await Promise.all([
+    supabaseAdmin.from('projects').select('id, created_at, title, status, project_types(name, slug)', { count: 'exact' }).order('created_at', { ascending: false }).limit(5),
+    ...countTables.map(table => supabaseAdmin.from(table).select('id', { count: 'exact', head: true }))
+  ])
+  const latencyMs = Date.now() - startedAt
+
+  if (projectsRes.error) throw projectsRes.error
+
+  const counts = {
+    projects: projectsRes.count ?? projectsRes.data?.length ?? 0
+  }
+  const failedTables = []
+  countResults.forEach((res, i) => {
+    if (res.error) {
+      console.error(`Dashboard count ${countTables[i]} error:`, res.error)
+      failedTables.push(countTables[i])
+      counts[countTables[i]] = null
+    } else {
+      counts[countTables[i]] = res.count ?? 0
+    }
+  })
+
+  return {
+    counts,
+    failedTables,
+    recentProjects: projectsRes.data || [],
+    latencyMs
+  }
+}
+
 export default async function AdminDashboardPage() {
+  // Defense in depth: proxy already guards /admin, but this page reads with the service role
+  const cookieStore = await cookies()
+  if (!(await verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value))) {
+    redirect('/admin/login')
+  }
+
   let hasError = false
-  let totalProjects = 0
-  let totalCerts = 0
-  let totalTypes = 0
+  let counts = {}
+  let failedTables = []
   let recentProjects = []
+  let latencyMs = null
 
   try {
-    // 1. Fetch counts and recent activity
-    const [projectsRes, certsRes, typesRes] = await Promise.all([
-      supabaseAdmin.from('projects').select('id, created_at, title, status, project_types(name, slug)', { count: 'exact' }).order('created_at', { ascending: false }).limit(5),
-      supabaseAdmin.from('certificates').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('project_types').select('id', { count: 'exact', head: true })
-    ])
-
-    if (projectsRes.error) throw projectsRes.error
-    if (certsRes.error) throw certsRes.error
-    if (typesRes.error) throw typesRes.error
-
-    totalProjects = projectsRes.count ?? projectsRes.data.length
-    totalCerts = certsRes.count ?? 0
-    totalTypes = typesRes.count ?? 0
-    recentProjects = projectsRes.data || []
-
+    const data = await loadDashboardMetrics()
+    counts = data.counts
+    failedTables = data.failedTables
+    recentProjects = data.recentProjects
+    latencyMs = data.latencyMs
   } catch (error) {
     console.error('Error loading dashboard stats:', error)
     hasError = true
@@ -84,48 +135,21 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Metric 1 */}
-        <Link href="/admin/projects" className="group bg-gray-800/80 hover:bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-2xl p-6 transition-all duration-300 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
-            <i className="ri-code-box-line text-8xl text-white"></i>
-          </div>
-          <div className="relative z-10">
-            <div className="w-11 h-11 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 mb-5">
-              <i className="ri-folder-open-line text-blue-400 text-xl"></i>
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {METRICS.map((metric) => (
+          <Link key={metric.key} href={metric.href} className="group bg-gray-800/80 hover:bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-2xl p-5 transition-all duration-300 shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
+              <i className={`${metric.bg} text-7xl text-white`}></i>
             </div>
-            <p className="text-gray-400 text-sm font-medium mb-1">Total Proyek</p>
-            <h3 className="text-3xl font-bold text-white">{totalProjects}</h3>
-          </div>
-        </Link>
-
-        {/* Metric 2 */}
-        <Link href="/admin/certificates" className="group bg-gray-800/80 hover:bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-2xl p-6 transition-all duration-300 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
-            <i className="ri-award-line text-8xl text-white"></i>
-          </div>
-          <div className="relative z-10">
-            <div className="w-11 h-11 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 mb-5">
-              <i className="ri-award-fill text-emerald-400 text-xl"></i>
+            <div className="relative z-10">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center border mb-5 ${COLOR_CLASSES[metric.color]}`}>
+                <i className={`${metric.icon} text-xl`}></i>
+              </div>
+              <p className="text-gray-400 text-sm font-medium mb-1">{metric.label}</p>
+              <h3 className="text-3xl font-bold text-white">{counts[metric.key] ?? '—'}</h3>
             </div>
-            <p className="text-gray-400 text-sm font-medium mb-1">Sertifikat Valid</p>
-            <h3 className="text-3xl font-bold text-white">{totalCerts}</h3>
-          </div>
-        </Link>
-
-        {/* Metric 3 */}
-        <Link href="/admin/project_types" className="group bg-gray-800/80 hover:bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-2xl p-6 transition-all duration-300 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
-            <i className="ri-layout-grid-line text-8xl text-white"></i>
-          </div>
-          <div className="relative z-10">
-            <div className="w-11 h-11 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 mb-5">
-              <i className="ri-list-settings-line text-amber-400 text-xl"></i>
-            </div>
-            <p className="text-gray-400 text-sm font-medium mb-1">Kategori Konten</p>
-            <h3 className="text-3xl font-bold text-white">{totalTypes}</h3>
-          </div>
-        </Link>
+          </Link>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
@@ -168,7 +192,7 @@ export default async function AdminDashboardPage() {
                         </span>
                       </div>
                     </div>
-                    <Link href="/admin/projects" className="p-2 text-gray-500 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0" title="Kelola">
+                    <Link href={`/admin/projects?edit=${project.id}`} className="p-2 text-gray-500 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 transition-all" title="Edit proyek" aria-label={`Edit ${project.title}`}>
                       <i className="ri-arrow-right-line"></i>
                     </Link>
                   </div>
@@ -184,7 +208,7 @@ export default async function AdminDashboardPage() {
           <div className="bg-gradient-to-b from-gray-800 to-gray-900 border border-gray-700 rounded-2xl p-6 shadow-lg">
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-5">Akses Cepat</h2>
             <div className="space-y-3">
-              <Link href="/admin/projects" className="flex items-center gap-3 w-full p-3 bg-gray-800/80 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all group shadow-sm hover:shadow-md hover:border-gray-600">
+              <Link href="/admin/projects?new=1" className="flex items-center gap-3 w-full p-3 bg-gray-800/80 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all group shadow-sm hover:shadow-md hover:border-gray-600">
                 <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-colors">
                   <i className="ri-add-line text-lg"></i>
                 </div>
@@ -196,7 +220,7 @@ export default async function AdminDashboardPage() {
                 </div>
               </Link>
               
-              <Link href="/admin/certificates" className="flex items-center gap-3 w-full p-3 bg-gray-800/80 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all group shadow-sm hover:shadow-md hover:border-gray-600">
+              <Link href="/admin/certificates?new=1" className="flex items-center gap-3 w-full p-3 bg-gray-800/80 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all group shadow-sm hover:shadow-md hover:border-gray-600">
                 <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
                   <i className="ri-award-line text-lg"></i>
                 </div>
@@ -224,16 +248,22 @@ export default async function AdminDashboardPage() {
 
           {/* System Status */}
           <div className="bg-gray-800/40 border border-gray-700/50 rounded-2xl p-6 relative overflow-hidden shadow-lg">
-            <div className="absolute -right-10 -top-10 w-32 h-32 bg-green-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div className={`absolute -right-10 -top-10 w-32 h-32 rounded-full blur-3xl pointer-events-none ${failedTables.length ? 'bg-amber-500/10' : 'bg-green-500/10'}`}></div>
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4 relative z-10">Status Sistem</h2>
             <div className="flex items-center gap-3 relative z-10">
               <div className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                {!failedTables.length && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+                <span className={`relative inline-flex rounded-full h-3 w-3 ${failedTables.length ? 'bg-amber-500' : 'bg-green-500'}`}></span>
               </div>
-              <p className="text-sm font-semibold text-white">Database Online</p>
+              <p className="text-sm font-semibold text-white">
+                {failedTables.length ? 'Database Sebagian Bermasalah' : 'Database Online'}
+              </p>
             </div>
-            <p className="text-xs text-gray-500 mt-3 relative z-10 leading-relaxed">Semua sistem operasional dan berjalan optimal. Sinkronisasi data dengan frontend aktif.</p>
+            <p className="text-xs text-gray-500 mt-3 relative z-10 leading-relaxed">
+              {failedTables.length
+                ? `Gagal membaca tabel: ${failedTables.join(', ')}.`
+                : `Semua query berhasil dalam ${latencyMs} ms.`}
+            </p>
           </div>
         </div>
       </div>

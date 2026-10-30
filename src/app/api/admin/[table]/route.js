@@ -1,13 +1,16 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { generateSlug } from '@/lib/project-utils'
+import { isValidSession } from '@/lib/session'
 export const dynamic = 'force-dynamic'
 
 const WHITELIST = ['projects', 'project_images', 'project_types', 'designs', 'design_images', 'videos', 'skills', 'certificates', 'certificate_images', 'profile', 'timeline', 'timeline_images']
 
-const URL_FIELDS = ['demo_url', 'play_store_url', 'apk_url', 'repo_url', 'credential_link', 'video_url', 'image_url', 'thumbnail_url', 'cover_image_url', 'github_url']
+const URL_FIELDS = ['demo_url', 'play_store_url', 'apk_url', 'repo_url', 'credential_url', 'verify_url', 'video_url', 'image_url', 'thumbnail_url', 'cover_image_url', 'github_url']
+
+// Foreign keys allowed as GET filters (?project_id=...)
+const FILTER_FIELDS = ['project_id', 'design_id', 'certificate_id', 'timeline_id', 'project_type_id']
 
 // UUID v4 pattern or integer
 const VALID_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -16,15 +19,17 @@ function isValidId(id) {
   return /^\d+$/.test(str) || VALID_ID_PATTERN.test(str)
 }
 
-// Validate session from cookie
-function validateSession(req) {
-  const session = req.cookies.get('admin_session')?.value
-  if (!session) return false
-  
-  if (!process.env.ADMIN_PASSWORD) return false
-  
-  const expectedSession = crypto.createHmac('sha256', process.env.ADMIN_PASSWORD).update('admin_session_salt').digest('hex')
-  return session === expectedSession
+const validateSession = isValidSession
+
+// Slug from a name; falls back when name has no ASCII letters/digits
+function typeSlug(name) {
+  const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '')
+  return slug || `type-${Date.now().toString(36)}`
+}
+
+// PostgREST "column not found" — lets slug writes degrade gracefully if the column is missing
+function isMissingColumn(error, column) {
+  return (error?.code === 'PGRST204' || error?.code === '42703') && error?.message?.includes(column)
 }
 
 function unauthorizedResponse() {
@@ -41,16 +46,13 @@ function badRequestResponse(message = 'Bad request') {
 
 function serverErrorResponse(message = 'Internal server error', details = null) {
   console.error('Server error:', message, details)
-  // For personal/portfolio project: show detailed errors for easier debugging
-  return NextResponse.json({
-    error: message,
-    details: details ? String(details) : undefined
-  }, { status: 500 })
+  // Session-protected admin API: DB message helps the admin fix input, raw objects stay in logs
+  return NextResponse.json({ error: message }, { status: 500 })
 }
 
 export async function GET(req, { params }) {
   try {
-    if (!validateSession(req)) return unauthorizedResponse()
+    if (!(await validateSession(req))) return unauthorizedResponse()
 
     const { table } = await params
     if (!WHITELIST.includes(table)) return notAllowedResponse()
@@ -74,9 +76,18 @@ export async function GET(req, { params }) {
     if (tablesWithSortOrder.includes(table)) {
       query = query.order('sort_order', { ascending: true, nullsFirst: false })
     }
-    query = query.order('created_at', { ascending: false })
+    if (table !== 'profile') {
+      query = query.order('created_at', { ascending: false })
+    }
 
     if (id) query = query.eq('id', id)
+
+    for (const field of FILTER_FIELDS) {
+      const value = searchParams.get(field)
+      if (value === null) continue
+      if (!isValidId(value)) return badRequestResponse(`Invalid ${field} format`)
+      query = query.eq(field, value)
+    }
 
     const { data, error } = await query
 
@@ -93,7 +104,7 @@ export async function GET(req, { params }) {
 
 export async function POST(req, { params }) {
   try {
-    if (!validateSession(req)) return unauthorizedResponse()
+    if (!(await validateSession(req))) return unauthorizedResponse()
 
     const { table } = await params
     if (!WHITELIST.includes(table)) return notAllowedResponse()
@@ -112,14 +123,14 @@ export async function POST(req, { params }) {
       if (!safeBody.title || !safeBody.project_type_id) {
         return badRequestResponse('Title and project_type_id are required')
       }
-      delete safeBody.slug;
+      safeBody.slug = generateSlug(safeBody.title)
     }
     if (table === 'project_types') {
       if (!safeBody.name) {
         return badRequestResponse('Name is required')
       }
       if (!safeBody.slug) {
-        safeBody.slug = safeBody.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '')
+        safeBody.slug = typeSlug(safeBody.name)
       }
     }
     if (table === 'designs' && !safeBody.title) {
@@ -136,6 +147,18 @@ export async function POST(req, { params }) {
     }
     if (table === 'timeline_images' && (!safeBody.timeline_id || !safeBody.image_url)) {
       return badRequestResponse('Timeline ID and image URL are required')
+    }
+    if (table === 'project_images' && (!safeBody.project_id || !safeBody.image_url)) {
+      return badRequestResponse('Project ID and image URL are required')
+    }
+    if (table === 'certificate_images' && (!safeBody.certificate_id || !safeBody.image_url)) {
+      return badRequestResponse('Certificate ID and image URL are required')
+    }
+    if (table === 'design_images' && (!safeBody.design_id || !safeBody.image_url)) {
+      return badRequestResponse('Design ID and image URL are required')
+    }
+    if (table === 'skills' && !safeBody.category) {
+      return badRequestResponse('Category is required')
     }
 
     // Sanitize URL fields to prevent XSS
@@ -154,7 +177,25 @@ export async function POST(req, { params }) {
       }
     }
 
-    const { data, error } = await supabaseAdmin.from(table).insert(safeBody).select()
+    let { data, error } = await supabaseAdmin.from(table).insert(safeBody).select()
+
+    if (error && table === 'projects' && isMissingColumn(error, 'slug')) {
+      delete safeBody.slug
+      ;({ data, error } = await supabaseAdmin.from(table).insert(safeBody).select())
+    }
+
+    if (error && table === 'skills') {
+      let modified = false
+      for (const col of ['desc', 'highlight']) {
+        if (isMissingColumn(error, col) && col in safeBody) {
+          delete safeBody[col]
+          modified = true
+        }
+      }
+      if (modified) {
+        ;({ data, error } = await supabaseAdmin.from(table).insert(safeBody).select())
+      }
+    }
 
     if (error) {
       console.error(`POST ${table} error:`, error)
@@ -170,7 +211,7 @@ export async function POST(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    if (!validateSession(req)) return unauthorizedResponse()
+    if (!(await validateSession(req))) return unauthorizedResponse()
 
     const { table } = await params
     if (!WHITELIST.includes(table)) return notAllowedResponse()
@@ -188,12 +229,20 @@ export async function PUT(req, { params }) {
     }
 
     if (table === 'projects') {
-      delete safeBody.slug;
+      // Slug is stable once set (public URLs depend on it); only backfill when empty
+      delete safeBody.slug
+      if (safeBody.title) {
+        const { data: existing, error: slugError } = await supabaseAdmin
+          .from('projects').select('slug').eq('id', id).maybeSingle()
+        if (!slugError && existing && !existing.slug) {
+          safeBody.slug = generateSlug(safeBody.title)
+        }
+      }
     }
 
     if (table === 'project_types') {
       if (safeBody.name && !safeBody.slug) {
-        safeBody.slug = safeBody.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '')
+        safeBody.slug = typeSlug(safeBody.name)
       }
     }
 
@@ -212,11 +261,28 @@ export async function PUT(req, { params }) {
       }
     }
 
-    const { data, error } = await supabaseAdmin
+    let { data, error } = await supabaseAdmin
       .from(table)
       .update(safeBody)
       .eq('id', id)
       .select()
+
+    if (error && table === 'skills') {
+      let modified = false
+      for (const col of ['desc', 'highlight']) {
+        if (isMissingColumn(error, col) && col in safeBody) {
+          delete safeBody[col]
+          modified = true
+        }
+      }
+      if (modified) {
+        ;({ data, error } = await supabaseAdmin
+          .from(table)
+          .update(safeBody)
+          .eq('id', id)
+          .select())
+      }
+    }
 
     if (error) {
       console.error(`PUT ${table} error:`, error)
@@ -236,7 +302,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    if (!validateSession(req)) return unauthorizedResponse()
+    if (!(await validateSession(req))) return unauthorizedResponse()
 
     const { table } = await params
     if (!WHITELIST.includes(table)) return notAllowedResponse()
@@ -272,7 +338,7 @@ export async function DELETE(req, { params }) {
 
 export async function PATCH(req, { params }) {
   try {
-    if (!validateSession(req)) return unauthorizedResponse()
+    if (!(await validateSession(req))) return unauthorizedResponse()
 
     const { table } = await params
     if (!WHITELIST.includes(table)) return notAllowedResponse()
@@ -284,8 +350,6 @@ export async function PATCH(req, { params }) {
     }
 
     const { items } = body
-
-    console.log(`[PATCH ${table}] Received items:`, items)
 
     // Validate items array
     if (!Array.isArray(items) || items.length === 0) {
@@ -318,8 +382,6 @@ export async function PATCH(req, { params }) {
       }
     }
 
-    console.log(`[PATCH ${table}] Validation passed, updating ${items.length} items`)
-
     // Batch update using Promise.all for better performance
     const updates = items.map(item => {
       const updateData = { sort_order: item.sort_order }
@@ -334,8 +396,6 @@ export async function PATCH(req, { params }) {
     })
 
     const results = await Promise.all(updates)
-
-    console.log(`[PATCH ${table}] Update results:`, results.map(r => ({ error: r.error, data: r.data })))
 
     // Check for errors
     const errors = results.filter(r => r.error)

@@ -23,6 +23,17 @@ export default function CertificatesClient({ certs: initialCerts }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (modal) {
+      window.__lenis?.stop();
+    } else {
+      window.__lenis?.start();
+    }
+    return () => {
+      window.__lenis?.start();
+    };
+  }, [modal]);
+
   const share = (cert) => {
     navigator.clipboard.writeText(`${window.location.origin}/certificates#${cert.id}`);
     setCopied(true);

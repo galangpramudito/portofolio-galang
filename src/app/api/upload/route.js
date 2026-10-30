@@ -1,9 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { NextResponse } from 'next/server'
-import crypto from 'crypto'
+import { isValidSession } from '@/lib/session'
 
-// File size limits (in bytes)
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+// File size limit (in bytes). Vercel rejects function bodies above 4.5MB.
+const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 
 // Allowed MIME types
 const ALLOWED_MIME_TYPES = {
@@ -29,17 +29,6 @@ const ALLOWED_EXTENSIONS = {
   certificates: ['.jpg', '.jpeg', '.png', '.webp', '.pdf']
 }
 
-// Validate session from cookie
-function validateSession(req) {
-  const session = req.cookies.get('admin_session')?.value
-  if (!session) return false
-  
-  if (!process.env.ADMIN_PASSWORD) return false
-  
-  const expectedSession = crypto.createHmac('sha256', process.env.ADMIN_PASSWORD).update('admin_session_salt').digest('hex')
-  return session === expectedSession
-}
-
 // Sanitize filename to prevent path traversal
 function sanitizeFilename(filename) {
   return filename
@@ -51,7 +40,7 @@ function sanitizeFilename(filename) {
 export async function POST(req) {
   try {
     // Authentication check
-    if (!validateSession(req)) {
+    if (!(await isValidSession(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -68,8 +57,8 @@ export async function POST(req) {
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` },
-        { status: 400 }
+        { error: `File terlalu besar. Maksimal ${MAX_FILE_SIZE / 1024 / 1024}MB` },
+        { status: 413 }
       )
     }
 
@@ -112,10 +101,18 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Invalid filename' }, { status: 400 })
     }
 
-    // Ensure bucket exists in Supabase Storage
-    const { data: bucketData, error: getBucketError } = await supabaseAdmin.storage.getBucket(bucket)
-    if (getBucketError || !bucketData) {
-      console.log(`Bucket "${bucket}" not found, creating automatically...`)
+    const uploadFile = () => supabaseAdmin.storage
+      .from(bucket)
+      .upload(filename, file, {
+        contentType: file.type,
+        upsert: false,
+        cacheControl: '3600'
+      })
+
+    let { error } = await uploadFile()
+
+    // Create the bucket lazily, only when it's actually missing
+    if (error && /bucket not found/i.test(error.message || '')) {
       const { error: createBucketError } = await supabaseAdmin.storage.createBucket(bucket, {
         public: true,
         fileSizeLimit: MAX_FILE_SIZE,
@@ -124,27 +121,13 @@ export async function POST(req) {
       if (createBucketError && !createBucketError.message?.includes('already exists')) {
         console.error('Failed to create bucket:', createBucketError)
       }
+      ;({ error } = await uploadFile())
     }
-
-    // Upload to Supabase Storage
-    const { data, error } = await supabaseAdmin.storage
-      .from(bucket)
-      .upload(filename, file, {
-        contentType: file.type,
-        upsert: true,
-        cacheControl: '3600'
-      })
 
     if (error) {
       console.error('Upload error:', error)
-      
-      // Return detailed error for debugging
       return NextResponse.json(
-        { 
-          error: 'Failed to upload file',
-          details: error.message,
-          errorObj: error
-        },
+        { error: `Gagal upload file: ${error.message}` },
         { status: 500 }
       )
     }
@@ -170,11 +153,7 @@ export async function POST(req) {
   } catch (error) {
     console.error('Upload handler error:', error)
     return NextResponse.json(
-      { 
-        error: 'An error occurred during file upload',
-        details: error.message,
-        stack: error.stack
-      },
+      { error: 'Terjadi kesalahan saat upload file' },
       { status: 500 }
     )
   }

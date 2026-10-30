@@ -19,6 +19,13 @@ export function SmoothScroll({ children }) {
     ScrollTrigger.update();
   });
 
+  // Ensure browser native scroll restoration does not fight with Lenis virtual scroll
+  useEffect(() => {
+    if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+  }, []);
+
   useEffect(() => {
     function update(time) {
       lenisRef.current?.lenis?.raf(time * 1000);
@@ -81,6 +88,9 @@ export function SmoothScroll({ children }) {
     const lenis = lenisRef.current?.lenis || window.__lenis;
     if (!lenis) return;
 
+    // Clear GSAP scroll memory to prevent stale trigger recalculations across pages
+    ScrollTrigger.clearScrollMemory();
+
     if (window.location.hash) {
       const hash = window.location.hash;
       const timer = setTimeout(() => {
@@ -92,10 +102,44 @@ export function SmoothScroll({ children }) {
       return () => clearTimeout(timer);
     } else {
       lenis.scrollTo(0, { immediate: true });
-      requestAnimationFrame(() => {
+      // Staggered layout measurements to ensure accurate bounds as React settles
+      const t1 = setTimeout(() => {
+        lenis.resize();
         ScrollTrigger.refresh();
-      });
+      }, 100);
+      const t2 = setTimeout(() => {
+        lenis.resize();
+        ScrollTrigger.refresh();
+      }, 350);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
+  }, [pathname]);
+
+  // Keep Lenis scroll limit and ScrollTrigger synchronized with dynamic DOM height changes
+  useEffect(() => {
+    if (typeof window === "undefined" || !document.body) return;
+
+    let rafId = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const activeLenis = lenisRef.current?.lenis || window.__lenis;
+        if (activeLenis) {
+          activeLenis.resize();
+          ScrollTrigger.refresh();
+        }
+      });
+    });
+
+    resizeObserver.observe(document.body);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [pathname]);
 
   // Global handler for in-page smooth anchor clicks

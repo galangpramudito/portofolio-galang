@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
+import { SESSION_COOKIE, verifySessionToken } from '@/lib/session'
 
-export function middleware(req) {
+export async function middleware(req) {
   const { pathname } = req.nextUrl
 
   const isAdminRoute = pathname.startsWith('/admin')
@@ -8,22 +9,23 @@ export function middleware(req) {
   const isApiRoute = pathname.startsWith('/api/admin')
 
   if (isAdminRoute && !isLoginPage) {
-    const session = req.cookies.get('admin_session')?.value
-    
-    // Check if session exists and has valid format (64 char hex)
-    if (!session || !/^[a-f0-9]{64}$/i.test(session)) {
-      return NextResponse.redirect(new URL('/admin/login', req.url))
+    const session = req.cookies.get(SESSION_COOKIE)?.value
+
+    // Verify signature + expiry, not just format
+    if (!(await verifySessionToken(session))) {
+      const response = NextResponse.redirect(new URL('/admin/login', req.url))
+      if (session) response.cookies.delete(SESSION_COOKIE)
+      return response
     }
   }
 
   // Add security headers
   const response = NextResponse.next()
-  
+
   // Prevent admin pages from being embedded in iframes
   if (isAdminRoute || isApiRoute) {
     response.headers.set('X-Frame-Options', 'DENY')
     response.headers.set('X-Content-Type-Options', 'nosniff')
-    response.headers.set('X-XSS-Protection', '1; mode=block')
     response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   }
 

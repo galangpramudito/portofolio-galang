@@ -19,7 +19,11 @@ async function getProject(id) {
       .eq("id", id)
       .neq("status", "private")
       .maybeSingle(),
-    supabase.from("project_images").select("*").order("sort_order"),
+    supabase
+      .from("project_images")
+      .select("*")
+      .eq("project_id", id)
+      .order("sort_order"),
   ]);
 
   if (projectRes.error || !projectRes.data) return null;

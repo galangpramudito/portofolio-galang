@@ -1,353 +1,75 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import DragDropList from '@/app/admin/components/DragDropList'
-import { useToast } from '@/app/admin/components/ToastProvider'
+import RelatedImages from '@/app/admin/components/RelatedImages'
+import { useToast, useConfirm } from '@/app/admin/components/ToastProvider'
 import { useSafeNavigation } from '@/app/admin/hooks/useNavigation'
+import {
+  apiRequest,
+  uploadFile,
+  isOptimizableImage,
+  MAX_UPLOAD_BYTES,
+} from '@/app/admin/utils/api'
 
-// Sub-komponen untuk Related Images (misal: project_images, design_images)
-function RelatedImages({ parentId, table, foreignKey, label, addLabel, hasCaption = false }) {
-  const [images, setImages] = useState([])
-  const [newImageFile, setNewImageFile] = useState(null)
-  const [newImageCaption, setNewImageCaption] = useState('')
-  const [newImageDescription, setNewImageDescription] = useState('')
-  const [newImageLoading, setNewImageLoading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
-  const { redirectToLogin } = useSafeNavigation()
-  const toast = useToast()
-  const fileInputRef = useRef(null)
-  const updateTimerRef = useRef({})
+const URL_FIELD_NAMES = new Set([
+  'demo_url',
+  'play_store_url',
+  'apk_url',
+  'repo_url',
+  'credential_url',
+  'verify_url',
+  'video_url',
+  'github_url',
+  'thumbnail_url',
+  'cover_image_url',
+  'image_url',
+])
 
-  // Memoize fetch function to prevent recreating on every render
-  const fetchImages = useCallback(async (isMountedRef) => {
-    if (!parentId) return
-    
-    try {
-      const res = await fetch(`/api/admin/${table}`, { credentials: 'include' })
-      
-      if (!isMountedRef.current) return
-      
-      if (res.status === 401) {
-        redirectToLogin()
-        return
-      }
-      
-      if (!res.ok) {
-        console.error(`Failed to fetch ${table}:`, res.status, res.statusText)
-        return
-      }
-      
-      const data = await res.json()
-      if (isMountedRef.current) {
-        setImages(data.filter(img => img[foreignKey] === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)))
-      }
-    } catch (err) {
-      if (isMountedRef.current) {
-        console.error(`Error fetching ${table}:`, err)
-      }
-    }
-  }, [parentId, table, foreignKey, redirectToLogin])
+const NULLABLE_FIELD_TYPES = new Set(['date', 'select', 'number', 'url', 'image'])
 
-  useEffect(() => {
-    const isMountedRef = { current: true }
-    
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchImages(isMountedRef)
-    
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [fetchImages])
-  
-  const refetchImages = useCallback(async () => {
-    if (!parentId) return
-    
-    const isMountedRef = { current: true }
-    
-    try {
-      const res = await fetch(`/api/admin/${table}`, { credentials: 'include' })
-      
-      if (!isMountedRef.current) return
-      
-      if (res.status === 401) {
-        redirectToLogin()
-        return
-      }
-      
-      if (!res.ok) {
-        console.error(`Failed to refetch ${table}:`, res.status, res.statusText)
-        return
-      }
-      
-      const data = await res.json()
-      if (isMountedRef.current) {
-        setImages(data.filter(img => img[foreignKey] === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)))
-      }
-    } catch (err) {
-      if (isMountedRef.current) {
-        console.error(`Error refetching ${table}:`, err)
-      }
-    }
-  }, [parentId, table, foreignKey, redirectToLogin])
-
-  const handleImageUpload = async (file) => {
-    setNewImageLoading(true)
-    setUploadError('')
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('bucket', 'thumbnails')
-      const res = await fetch('/api/upload', { 
-        method: 'POST', 
-        body: formData,
-        credentials: 'include'
-      })
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.error || errorData.details || 'Failed to upload image')
-      }
-      const { url } = await res.json()
-      return url
-    } catch (err) {
-      setUploadError(err.message)
-      return null
-    } finally {
-      setNewImageLoading(false)
-    }
-  }
-
-  const handleAddImage = async () => {
-    if (!parentId || !newImageFile) {
-      setUploadError('Pilih file gambar terlebih dahulu.')
-      return
-    }
-    const imageUrl = await handleImageUpload(newImageFile)
-    if (!imageUrl) return
-
-    // Auto-fallback caption from filename if empty
-    const fallbackCaption = newImageFile.name ? newImageFile.name.replace(/\.[^/.]+$/, "") : 'Foto Dokumentasi'
-    const finalCaption = newImageCaption.trim() || fallbackCaption
-
-    const newImageData = {
-      [foreignKey]: parentId,
-      image_url: imageUrl,
-      sort_order: images.length + 1,
-    }
-    if (hasCaption) {
-      newImageData.caption = finalCaption
-      newImageData.description = newImageDescription.trim()
-    }
-
-    try {
-      const res = await fetch(`/api/admin/${table}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(newImageData),
-      })
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        const errorMsg = errData.error || errData.details || 'Gagal menyimpan foto ke database'
-        setUploadError(errorMsg)
-        toast.error(errorMsg)
-      } else {
-        await refetchImages()
-        setNewImageFile(null)
-        setNewImageCaption('')
-        setNewImageDescription('')
-        setUploadError('')
-        toast.success('Foto dokumentasi penunjang berhasil ditambahkan!')
-        if (fileInputRef.current) fileInputRef.current.value = ''
-      }
-    } catch (err) {
-      const msg = err.message || 'Gagal menyimpan foto'
-      setUploadError(msg)
-      toast.error(msg)
-    }
-  }
-
-  const handleUpdateImage = useCallback(async (id, updates) => {
-    try {
-      const res = await fetch(`/api/admin/${table}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ id, ...updates }),
-      })
-      if (res.status === 401) {
-        redirectToLogin()
-        return
-      }
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        console.error(`Failed to update ${table}:`, errData)
-        toast.error('Gagal mengupdate detail foto')
-      }
-      await refetchImages()
-    } catch (err) {
-      console.error(`Error updating ${table}:`, err)
-    }
-  }, [table, redirectToLogin, refetchImages, toast])
-
-  // Debounced version for text inputs (caption, description)
-  const handleDebouncedUpdate = useCallback((id, updates) => {
-    const key = `${id}-${Object.keys(updates).join(',')}`
-    if (updateTimerRef.current[key]) {
-      clearTimeout(updateTimerRef.current[key])
-    }
-    // Optimistically update local state
-    setImages(prev => prev.map(img => img.id === id ? { ...img, ...updates } : img))
-    // Debounce the API call
-    updateTimerRef.current[key] = setTimeout(() => {
-      handleUpdateImage(id, updates)
-      delete updateTimerRef.current[key]
-    }, 600)
-  }, [handleUpdateImage])
-
-  const handleDeleteImage = useCallback(async (id) => {
-    if (!confirm('Hapus gambar ini?')) return
-    try {
-      const res = await fetch(`/api/admin/${table}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ id }),
-      })
-      if (res.status === 401) {
-        redirectToLogin()
-        return
-      }
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        console.error(`Failed to delete ${table}:`, errData)
-        toast.error('Gagal menghapus foto')
-      } else {
-        toast.success('Foto berhasil dihapus')
-      }
-      await refetchImages()
-    } catch (err) {
-      console.error(`Error deleting ${table}:`, err)
-      toast.error('Gagal menghapus foto')
-    }
-  }, [table, redirectToLogin, refetchImages, toast])
-
-  if (!parentId) return null
-
-  return (
-    <div className="mt-6 p-5 bg-gray-800 rounded-lg border border-gray-700">
-      <h3 className="text-lg font-medium text-gray-200 mb-4">{label}</h3>
-      {uploadError && <p className="text-red-400 mb-4 text-sm">{uploadError}</p>}
-
-      <div className="space-y-4 mb-6">
-        {images.map((img) => (
-          <div key={img.id} className="flex flex-col md:flex-row items-start gap-4 bg-gray-700 p-4 rounded-md border border-gray-600">
-            <div className="flex-shrink-0 w-20 h-20 relative bg-gray-600 rounded-md overflow-hidden">
-              {img.image_url ? (
-                <Image src={img.image_url} alt="Thumbnail" fill sizes="80px" className="object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-400">
-                  <i className="ri-image-edit-line text-2xl"></i>
-                </div>
-              )}
-            </div>
-            <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
-              {hasCaption && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Caption</label>
-                    <input type="text" className="w-full px-3 py-1.5 bg-gray-600 border border-gray-500 rounded-md text-white text-sm"
-                      value={img.caption || ''} onChange={(e) => handleDebouncedUpdate(img.id, { caption: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Deskripsi</label>
-                    <textarea className="w-full px-3 py-1.5 bg-gray-600 border border-gray-500 rounded-md text-white text-sm" rows={2}
-                      value={img.description || ''} onChange={(e) => handleDebouncedUpdate(img.id, { description: e.target.value })} />
-                  </div>
-                </>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Urutan</label>
-                <input type="number" className="w-full px-3 py-1.5 bg-gray-600 border border-gray-500 rounded-md text-white text-sm"
-                  value={img.sort_order || 0} onChange={(e) => handleDebouncedUpdate(img.id, { sort_order: parseInt(e.target.value) || 0 })} />
-              </div>
-              <div className="flex items-end">
-                <button onClick={() => handleDeleteImage(img.id)}
-                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-md text-sm flex items-center gap-1">
-                  <i className="ri-delete-bin-line"></i> Hapus
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="bg-gray-700 p-4 rounded-md border border-gray-600">
-        <h4 className="text-sm font-medium text-gray-300 mb-3">Tambah Baru</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Upload Gambar</label>
-            <input type="file" ref={fileInputRef} accept="image/*"
-              className="w-full px-3 py-1.5 bg-gray-600 border border-gray-500 rounded-md text-white text-sm"
-              onChange={(e) => setNewImageFile(e.target.files[0])} disabled={newImageLoading} />
-          </div>
-          {hasCaption && (
-            <>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Caption</label>
-                <input type="text" className="w-full px-3 py-1.5 bg-gray-600 border border-gray-500 rounded-md text-white text-sm"
-                  value={newImageCaption} onChange={(e) => setNewImageCaption(e.target.value)} placeholder="Contoh: Halaman Pembayaran" disabled={newImageLoading} />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-xs text-gray-400 mb-1">Deskripsi</label>
-                <textarea className="w-full px-3 py-1.5 bg-gray-600 border border-gray-500 rounded-md text-white text-sm" rows={2}
-                  value={newImageDescription} onChange={(e) => setNewImageDescription(e.target.value)} placeholder="Contoh: Mendukung GoPay, OVO, QRIS via Midtrans" disabled={newImageLoading} />
-              </div>
-            </>
-          )}
-        </div>
-        <button 
-          type="button"
-          onClick={handleAddImage} 
-          disabled={newImageLoading || !newImageFile}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors font-medium shadow-md shadow-blue-500/20"
-        >
-          {newImageLoading && <i className="ri-loader-4-line animate-spin"></i>}
-          {newImageLoading ? 'Mengupload & Menyimpan...' : addLabel}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// Komponen utama CrudManager
-export default function CrudManager({ table, fields, columns, relatedSection = null, filterField = null, featuredLimit = null, enableFeaturedDrag = false }) {
+export default function CrudManager({
+  table,
+  fields,
+  columns,
+  relatedSection = null,
+  filterField = null,
+  featuredLimit = null,
+  enableFeaturedDrag = false,
+  searchFields = ['title', 'name'],
+  title = null,
+  description = null,
+}) {
   const [data, setData] = useState([])
   const [formData, setFormData] = useState({})
+  const [initialFormData, setInitialFormData] = useState({})
   const [editingId, setEditingId] = useState(null)
   const [showForm, setShowForm] = useState(false)
   const [selectedFilterValue, setSelectedFilterValue] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [fileToUpload, setFileToUpload] = useState(null)
   const [uploadLoading, setUploadLoading] = useState(false)
-  const initialFormRef = useRef({})
+  const handledQueryRef = useRef(false)
 
-  // Use custom hooks
   const toast = useToast()
+  const confirm = useConfirm()
   const { redirectToLogin } = useSafeNavigation()
 
-  useEffect(() => {
-    if (filterField && filterField.options && filterField.options.length > 0) {
-      if (selectedFilterValue === 'all' || !filterField.options.some(opt => String(opt.value) === String(selectedFilterValue))) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setSelectedFilterValue(filterField.options[0].value)
-      }
+  // Derive active filter value
+  const activeFilterValue = useMemo(() => {
+    if (!filterField?.options?.length) return selectedFilterValue
+    if (selectedFilterValue === 'all') {
+      const hasAll = filterField.options.some((opt) => String(opt.value) === 'all')
+      return hasAll ? 'all' : filterField.options[0].value
     }
+    const match = filterField.options.some((opt) => String(opt.value) === String(selectedFilterValue))
+    return match ? selectedFilterValue : filterField.options[0].value
   }, [filterField, selectedFilterValue])
 
-  // Ensure body scroll is never locked (fixes HMR lingering state from old drawer logic)
+  // Ensure body scroll is never locked
   useEffect(() => {
     document.body.style.overflow = 'unset'
     return () => {
@@ -355,103 +77,123 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
     }
   }, [])
 
-  // Keyboard Shortcut untuk Simpan (Ctrl+S / Cmd+S)
+  // Keyboard shortcut Ctrl+S / Cmd+S
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         if (showForm || editingId) {
           e.preventDefault()
           const form = document.getElementById('crud-form')
-          if (form && form.requestSubmit) {
-            form.requestSubmit()
-          }
+          if (form?.requestSubmit) form.requestSubmit()
         }
       }
     }
-    
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showForm, editingId])
 
+  // Warn before leaving if form has unsaved edits or selected file
+  const isDirty = useMemo(() => {
+    if (!showForm && !editingId) return false
+    if (fileToUpload !== null) return true
+    return JSON.stringify(formData) !== JSON.stringify(initialFormData)
+  }, [showForm, editingId, fileToUpload, formData, initialFormData])
+
   useEffect(() => {
-    let isMounted = true // Track if component is still mounted
-    
-    const fetchData = async () => {
-      setLoading(true)
-      setError('')
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isDirty])
+
+  // Fetch data
+  const fetchData = useCallback(
+    async (silent = false) => {
       try {
-        const res = await fetch(`/api/admin/${table}`, { credentials: 'include' })
-        
-        if (!isMounted) return // Don't update state if unmounted
-        
-        if (res.status === 401) {
-          setError('Session expired. Please login again.')
-          toast.error('Session expired. Please login again.')
-          setTimeout(() => {
-            if (isMounted) redirectToLogin()
-          }, 2000)
-          return
-        }
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }))
-          const errorMsg = [
-            errorData.error || `Failed to fetch: ${res.status} ${res.statusText}`,
-            errorData.details ? `Details: ${errorData.details}` : null
-          ].filter(Boolean).join('\n')
-          throw new Error(errorMsg)
-        }
-        
-        const items = await res.json()
-        if (isMounted) setData(items)
+        const items = await apiRequest(`/api/admin/${table}`, {
+          fallback: 'Gagal memuat data',
+        })
+        setData(items)
+        return items
       } catch (err) {
-        console.error('Fetch error:', err)
-        if (isMounted) setError(err.message || 'Failed to load data')
+        if (err.status === 401) {
+          setError('Sesi berakhir. Silakan login kembali.')
+          toast.error('Sesi berakhir. Silakan login kembali.')
+          setTimeout(() => redirectToLogin(), 1500)
+          return null
+        }
+        setError(err.message || 'Gagal memuat data')
+        toast.error(err.message || 'Gagal memuat data')
+        return null
       } finally {
-        if (isMounted) setLoading(false)
+        if (!silent) setLoading(false)
+      }
+    },
+    [table, redirectToLogin, toast]
+  )
+
+  const handleEdit = useCallback(
+    (item) => {
+      setEditingId(item.id)
+      const formattedItem = { ...item }
+      fields.forEach((field) => {
+        if (field.type === 'tags' && Array.isArray(item[field.key])) {
+          const delimiter = field.delimiter || ','
+          const joinStr = delimiter === '|' ? ' | ' : ', '
+          formattedItem[field.key] = item[field.key].join(joinStr)
+        }
+      })
+      setFormData(formattedItem)
+      setInitialFormData(formattedItem)
+      setFileToUpload(null)
+      setShowForm(true)
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      })
+    },
+    [fields]
+  )
+
+  // Fetch data on mount and handle URL query parameters (?new=1 and ?edit=<id>)
+  useEffect(() => {
+    let ignore = false
+    async function init() {
+      const items = await fetchData()
+      if (ignore || !items) return
+
+      if (handledQueryRef.current || typeof window === 'undefined') return
+      const params = new URLSearchParams(window.location.search)
+      const newParam = params.get('new')
+      const editParam = params.get('edit')
+
+      if (newParam === '1') {
+        handledQueryRef.current = true
+        const initialForm = {}
+        if (filterField && activeFilterValue !== 'all') {
+          initialForm[filterField.key] = activeFilterValue
+        }
+        setFormData(initialForm)
+        setInitialFormData(initialForm)
+        setEditingId(null)
+        setFileToUpload(null)
+        setShowForm(true)
+      } else if (editParam && items.length > 0) {
+        const match = items.find((i) => String(i.id) === String(editParam))
+        if (match) {
+          handledQueryRef.current = true
+          handleEdit(match)
+        }
       }
     }
-    
-    fetchData()
-    
-    // Cleanup function
+    init()
     return () => {
-      isMounted = false
+      ignore = true
     }
-  }, [table, redirectToLogin, toast])
-  
-  const refetchData = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await fetch(`/api/admin/${table}`, { credentials: 'include' })
-      
-      if (res.status === 401) {
-        setError('Session expired. Please login again.')
-        setTimeout(() => {
-          redirectToLogin()
-        }, 2000)
-        return
-      }
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }))
-        const errorMsg = [
-          errorData.error || `Failed to fetch: ${res.status} ${res.statusText}`,
-          errorData.details ? `Details: ${errorData.details}` : null
-        ].filter(Boolean).join('\n')
-        throw new Error(errorMsg)
-      }
-      
-      const items = await res.json()
-      setData(items)
-    } catch (err) {
-      console.error('Refetch error:', err)
-      setError(err.message || 'Failed to reload data')
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [fetchData, filterField, activeFilterValue, handleEdit])
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -463,36 +205,13 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
   }
 
   const handleFileChange = (e, fieldKey) => {
-    setFileToUpload({ file: e.target.files[0], fieldKey })
-  }
-
-  const handleImageUpload = async (file, fieldKey) => {
-    setUploadLoading(true)
-    setError('')
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('bucket', 'thumbnails')
-      const res = await fetch('/api/upload', { 
-        method: 'POST', 
-        body: fd,
-        credentials: 'include'
-      })
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.error || errorData.details || 'Gagal mengunggah gambar')
-      }
-      const { url } = await res.json()
-      setFormData((prev) => ({ ...prev, [fieldKey]: url }))
-      setFileToUpload(null)
-      return url
-    } catch (err) {
-      setError(err.message)
-      toast.error(err.message)
-      return null
-    } finally {
-      setUploadLoading(false)
+    const file = e.target.files?.[0]
+    if (file && file.size > MAX_UPLOAD_BYTES) {
+      e.target.value = ''
+      toast.error('File terlalu besar. Maksimal 4MB')
+      return
     }
+    setFileToUpload(file ? { file, fieldKey } : null)
   }
 
   const handleRemoveImage = (fieldKey) => {
@@ -506,137 +225,184 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
 
     let dataToSubmit = { ...formData }
 
-    // Client-side validation
-    const requiredFields = fields.filter(f => f.required && (!f.showWhen || f.showWhen(dataToSubmit)))
+    // Required fields validation
+    const requiredFields = fields.filter(
+      (f) => f.required && (!f.showWhen || f.showWhen(dataToSubmit))
+    )
     for (const field of requiredFields) {
       const value = dataToSubmit[field.key]
-      if (!value || (typeof value === 'string' && !value.trim())) {
+      if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
         setLoading(false)
-        const errorMsg = `${field.label} is required`
+        const errorMsg = `${field.label} wajib diisi`
         setError(errorMsg)
         toast.error(errorMsg)
-        
-        // Auto-scroll ke kolom yang error
-        const errorElement = document.getElementById(field.key)
-        if (errorElement) {
-          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          errorElement.focus()
+        const element = document.getElementById(field.key)
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          element.focus()
         }
-        
         return
       }
     }
 
-    // Validate URLs if present (allowing relative paths)
-    const urlFields = ['demo_url', 'play_store_url', 'apk_url', 'repo_url', 'credential_link', 'video_url', 'github_url', 'thumbnail_url', 'cover_image_url', 'image_url']
-    for (const urlField of urlFields) {
-      const urlValue = dataToSubmit[urlField]
-      if (urlValue && typeof urlValue === 'string' && urlValue.trim()) {
-        const val = urlValue.trim()
-        if (val.startsWith('/') || val.startsWith('./')) {
-          continue
-        }
-        try {
-          new URL(val)
-        } catch {
-          setLoading(false)
-          const errorMsg = `Invalid URL format for ${urlField.replace(/_/g, ' ')}`
-          setError(errorMsg)
-          toast.error(errorMsg)
-          return
+    // URL validation
+    for (const field of fields) {
+      if (field.type === 'url' || URL_FIELD_NAMES.has(field.key)) {
+        const val = dataToSubmit[field.key]
+        if (typeof val === 'string' && val.trim()) {
+          const trimmed = val.trim()
+          if (!trimmed.startsWith('/') && !trimmed.startsWith('./')) {
+            try {
+              new URL(trimmed)
+            } catch {
+              setLoading(false)
+              const errorMsg = `Format URL tidak valid untuk ${field.label || field.key}`
+              setError(errorMsg)
+              toast.error(errorMsg)
+              return
+            }
+          }
         }
       }
     }
 
-    // Sanitize string inputs (trim whitespace)
+    // Sanitize string inputs (trim) & normalize empty strings to null for nullable column types
     for (const key in dataToSubmit) {
       if (typeof dataToSubmit[key] === 'string') {
         dataToSubmit[key] = dataToSubmit[key].trim()
       }
     }
+    for (const field of fields) {
+      if (NULLABLE_FIELD_TYPES.has(field.type)) {
+        if (dataToSubmit[field.key] === '' || dataToSubmit[field.key] === undefined) {
+          dataToSubmit[field.key] = null
+        }
+      }
+      if (
+        field.type === 'number' &&
+        dataToSubmit[field.key] !== null &&
+        dataToSubmit[field.key] !== '' &&
+        dataToSubmit[field.key] !== undefined
+      ) {
+        dataToSubmit[field.key] = Number(dataToSubmit[field.key])
+      }
+    }
 
-    // Ensure array fields (like tags, items, description, skills, highlights) are always sent as proper arrays, not strings
-    const arrayFields = fields.filter(f => f.type === 'tags').map(f => f.key)
+    // Ensure array fields (tags) are sent as proper arrays
+    const arrayFields = fields.filter((f) => f.type === 'tags').map((f) => f.key)
     for (const key of arrayFields) {
-      const fieldDef = fields.find(f => f.key === key)
+      const fieldDef = fields.find((f) => f.key === key)
       const delimiter = fieldDef?.delimiter || ','
       const val = dataToSubmit[key]
       if (val === undefined || val === null || val === '') {
         dataToSubmit[key] = []
       } else if (typeof val === 'string') {
-        dataToSubmit[key] = val.split(delimiter).map(v => v.trim()).filter(Boolean)
+        dataToSubmit[key] = val
+          .split(delimiter)
+          .map((v) => v.trim())
+          .filter(Boolean)
       }
-      // If already an array, leave it as is
     }
 
-    // Handle image upload if a new file is selected
+    // Handle image upload if a file was selected
     if (fileToUpload) {
-      const imageUrl = await handleImageUpload(fileToUpload.file, fileToUpload.fieldKey)
-      if (!imageUrl) { setLoading(false); return }
-      dataToSubmit = { ...dataToSubmit, [fileToUpload.fieldKey]: imageUrl }
+      setUploadLoading(true)
+      try {
+        const imageUrl = await uploadFile(fileToUpload.file, 'thumbnails')
+        dataToSubmit[fileToUpload.fieldKey] = imageUrl
+      } catch (uploadErr) {
+        setUploadLoading(false)
+        setLoading(false)
+        setError(uploadErr.message)
+        toast.error(uploadErr.message)
+        return
+      } finally {
+        setUploadLoading(false)
+      }
     }
 
     // Auto-generate thumbnail for certificates if PDF is provided and image is empty
-    if (table === 'certificates' && dataToSubmit.verify_url?.toLowerCase().endsWith('.pdf') && !dataToSubmit.image_url) {
-      toast.info("Membuat thumbnail dari PDF...");
+    if (
+      table === 'certificates' &&
+      dataToSubmit.verify_url?.toLowerCase().endsWith('.pdf') &&
+      !dataToSubmit.image_url
+    ) {
+      toast.info('Membuat thumbnail dari PDF...')
       try {
-        const { generatePdfThumbnail } = await import('@/lib/pdfToImage');
-        const blob = await generatePdfThumbnail(dataToSubmit.verify_url);
-        const fd = new FormData();
-        fd.append('file', blob, 'pdf-thumbnail.jpg');
-        fd.append('bucket', 'thumbnails');
-        
-        const res = await fetch('/api/upload', { 
-          method: 'POST', 
-          body: fd,
-          credentials: 'include'
-        });
-        if (res.ok) {
-          const { url } = await res.json();
-          dataToSubmit.image_url = url;
-          toast.success("Thumbnail berhasil dibuat!");
-        } else {
-          toast.error("Gagal mengunggah thumbnail");
-        }
+        const { generatePdfThumbnail } = await import('@/lib/pdfToImage')
+        const blob = await generatePdfThumbnail(dataToSubmit.verify_url)
+        const imageUrl = await uploadFile(blob, 'thumbnails', 'pdf-thumbnail.jpg')
+        dataToSubmit.image_url = imageUrl
+        toast.success('Thumbnail PDF berhasil dibuat!')
       } catch (err) {
-        console.error("PDF thumbnail generation failed:", err);
-        toast.error("Gagal membuat thumbnail PDF, menyimpan tanpa thumbnail.");
+        console.error('PDF thumbnail generation failed:', err)
+        toast.warning('Gagal membuat thumbnail PDF, menyimpan tanpa thumbnail.')
       }
     }
 
     // Filter out fields hidden by showWhen
-    const visibleKeys = new Set(fields.filter(f => !f.showWhen || f.showWhen(dataToSubmit)).map(f => f.key))
+    const visibleKeys = new Set(
+      fields.filter((f) => !f.showWhen || f.showWhen(dataToSubmit)).map((f) => f.key)
+    )
     const cleanData = {}
     for (const key of Object.keys(dataToSubmit)) {
       if (visibleKeys.has(key) || key === 'id') cleanData[key] = dataToSubmit[key]
     }
 
-    const method = editingId ? 'PUT' : 'POST'
+    const isCreating = !editingId
+    const method = isCreating ? 'POST' : 'PUT'
     try {
-      const res = await fetch(`/api/admin/${table}`, {
+      const response = await apiRequest(`/api/admin/${table}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(editingId ? { id: editingId, ...cleanData } : cleanData),
+        body: editingId ? { id: editingId, ...cleanData } : cleanData,
+        fallback: isCreating ? 'Gagal menambahkan konten baru' : 'Gagal menyimpan perubahan',
       })
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        const errorMsg = [
-          errorData.error || 'Submission failed',
-          errorData.details ? `Details: ${errorData.details}` : null
-        ].filter(Boolean).join('\n')
-        throw new Error(errorMsg)
-      }
-      await refetchData()
-      toast.success(editingId ? 'Item updated successfully' : 'Item created successfully')
-      setFormData({})
-      setEditingId(null)
-      setFileToUpload(null)
-      setShowForm(false)
-      // Remove direct DOM manipulation
+
+      await fetchData(true) // silent refresh
+
+      // Clear file inputs
       const fileInputs = document.querySelectorAll('input[type="file"]')
-      fileInputs.forEach(input => { input.value = '' })
+      fileInputs.forEach((input) => {
+        input.value = ''
+      })
+      setFileToUpload(null)
+
+      if (isCreating) {
+        // Automatically enter edit mode for the newly created item if related section exists
+        const createdItem = Array.isArray(response) ? response[0] : response
+        const hasGallery =
+          relatedSection &&
+          (!relatedSection.showWhen || relatedSection.showWhen(createdItem || {}))
+        if (hasGallery && createdItem?.id) {
+          toast.success(
+            'Konten baru berhasil dibuat. Anda dapat menambahkan media penunjang di bagian bawah.'
+          )
+          handleEdit(createdItem)
+          setTimeout(() => {
+            document.getElementById('related-section')?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start',
+            })
+          }, 150)
+        } else {
+          toast.success('Konten berhasil dibuat')
+          setFormData({})
+          setInitialFormData({})
+          setEditingId(null)
+          setShowForm(false)
+        }
+      } else {
+        toast.success('Perubahan berhasil disimpan')
+        setFormData({})
+        setInitialFormData({})
+        setEditingId(null)
+        setShowForm(false)
+      }
     } catch (err) {
+      if (err.status === 401) {
+        redirectToLogin()
+        return
+      }
       setError(err.message)
       toast.error(err.message)
     } finally {
@@ -644,47 +410,32 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
     }
   }
 
-  const handleEdit = (item) => {
-    setEditingId(item.id)
-    const formattedItem = { ...item }
-    fields.forEach((field) => {
-      if (field.type === 'tags' && Array.isArray(item[field.key])) {
-        const delimiter = field.delimiter || ','
-        const joinStr = delimiter === '|' ? ' | ' : ', '
-        formattedItem[field.key] = item[field.key].join(joinStr)
-      }
+  const handleDelete = async (item) => {
+    const id = item?.id ?? item
+    const itemLabel = item?.title || item?.name || item?.role || `item #${id}`
+    const ok = await confirm({
+      title: 'Hapus data?',
+      message: `Yakin ingin menghapus "${itemLabel}"? Tindakan ini tidak dapat dibatalkan.`,
+      confirmLabel: 'Hapus',
+      danger: true,
     })
-    setFormData(formattedItem)
-    initialFormRef.current = formattedItem
-    setShowForm(true)
-    // Smooth scroll to top with RAF for better performance
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    })
-  }
+    if (!ok) return
 
-  const handleDelete = async (id) => {
-    if (!confirm('Hapus item ini?')) return
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`/api/admin/${table}`, {
+      await apiRequest(`/api/admin/${table}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ id }),
+        body: { id },
+        fallback: 'Gagal menghapus data',
       })
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        const errorMsg = [
-          errorData.error || 'Deletion failed',
-          errorData.details ? `Details: ${errorData.details}` : null
-        ].filter(Boolean).join('\n')
-        throw new Error(errorMsg)
-      }
-      await refetchData()
-      toast.success('Item deleted successfully')
+      await fetchData(true)
+      toast.success('Data berhasil dihapus')
     } catch (err) {
+      if (err.status === 401) {
+        redirectToLogin()
+        return
+      }
       setError(err.message)
       toast.error(err.message)
     } finally {
@@ -692,81 +443,59 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
     }
   }
 
-  const handleUpdateFromDrag = async (updatedItems) => {
+  const handleUpdateFromDrag = async (reorderedVisibleItems) => {
+    // Slot permutation for subset ordering:
+    // Take the visible items' current sort_order values, sort them ascending,
+    // and assign them in the new reordered sequence.
+    // This prevents collisions with items hidden by filters or search.
+    const originalSlots = reorderedVisibleItems
+      .map((i) => i.sort_order ?? 0)
+      .sort((a, b) => a - b)
+
+    const tablesWithFeatured = ['projects', 'designs', 'videos', 'certificates']
+
+    const itemsToUpdate = reorderedVisibleItems.map((item, index) => {
+      const itemData = {
+        id: item.id,
+        sort_order: originalSlots[index] ?? index,
+      }
+      if (tablesWithFeatured.includes(table) && item.featured !== undefined) {
+        itemData.featured = item.featured
+      }
+      return itemData
+    })
+
     try {
-      // Prepare items for batch update (only id, sort_order, featured)
-      const items = updatedItems.map(item => {
-        // Ensure all required fields exist
-        if (!item.id && item.id !== 0) {
-          console.error('Item missing id:', item)
-          throw new Error('Item missing id')
-        }
-        
-        // Tables that have a `featured` column
-        const tablesWithFeatured = ['projects', 'designs', 'videos', 'certificates']
-        
-        const itemData = {
-          id: item.id,
-          sort_order: item.sort_order ?? 0,
-        }
-        
-        // Only include `featured` for tables that have the column
-        if (tablesWithFeatured.includes(table)) {
-          itemData.featured = item.featured ?? false
-        }
-        
-        return itemData
-      })
-
-      // Debug logging (dev only)
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Sending batch update:', items)
-      }
-
-      const res = await fetch(`/api/admin/${table}`, {
+      await apiRequest(`/api/admin/${table}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ items }),
+        body: { items: itemsToUpdate },
+        fallback: 'Gagal memperbarui urutan',
       })
-
-      if (!res.ok) {
-        let errorData
-        const contentType = res.headers.get('content-type')
-        
-        if (contentType && contentType.includes('application/json')) {
-          errorData = await res.json()
-        } else {
-          const text = await res.text()
-          errorData = { error: text || `HTTP ${res.status}` }
-        }
-        
-        console.error('Batch update failed:', { status: res.status, statusText: res.statusText, errorData })
-        throw new Error(errorData.error || `Batch update failed: ${res.statusText}`)
-      }
-
-      const result = await res.json()
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Batch update success:', result)
-      }
-
-      // Silently refetch to sync state
-      await refetchData()
-      toast.success(`Updated ${items.length} items`)
+      await fetchData(true)
+      toast.success(`Urutan ${itemsToUpdate.length} item berhasil disimpan`)
     } catch (err) {
-      toast.error('Drag update failed: ' + err.message)
-      throw err // Re-throw to let DragDropList handle revert
+      if (err.status === 401) {
+        redirectToLogin()
+        return
+      }
+      toast.error('Gagal memperbarui urutan: ' + err.message)
+      throw err // Re-throw to trigger DragDropList revert
     }
   }
 
-  const handleCancelForm = () => {
-    const isDirty = JSON.stringify(formData) !== JSON.stringify(initialFormRef.current)
+  const handleCancelForm = async () => {
     if (isDirty) {
-      if (!confirm('Ada perubahan yang belum disimpan. Yakin ingin membuangnya?')) {
-        return
-      }
+      const ok = await confirm({
+        title: 'Buang perubahan?',
+        message: 'Ada perubahan yang belum disimpan. Yakin ingin membatalkan?',
+        confirmLabel: 'Buang',
+        cancelLabel: 'Lanjut Mengedit',
+        danger: true,
+      })
+      if (!ok) return
     }
     setFormData({})
+    setInitialFormData({})
     setEditingId(null)
     setFileToUpload(null)
     setShowForm(false)
@@ -776,23 +505,23 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
     if (field.showWhen && !field.showWhen(formData)) return null
     const value = formData[field.key] ?? ''
 
-    // Shared input classes
-    const inputClasses = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-accent focus:bg-white/10 focus:ring-1 focus:ring-accent/30 focus:outline-none transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+    const inputClasses =
+      'w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-accent focus:bg-white/10 focus:ring-1 focus:ring-accent/30 focus:outline-none transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed'
 
     let inputElement
     switch (field.type) {
       case 'text':
         inputElement = (
           <div className="space-y-1.5">
-            <input 
-              type="text" 
+            <input
+              type="text"
               name={field.key}
               id={field.key}
               className={inputClasses}
-              value={value} 
-              onChange={handleInputChange} 
-              required={field.required} 
-              placeholder={field.placeholder} 
+              value={value}
+              onChange={handleInputChange}
+              required={field.required}
+              placeholder={field.placeholder}
               disabled={loading || uploadLoading}
               aria-required={field.required}
               aria-label={field.label}
@@ -804,11 +533,11 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
                     key={sug}
                     type="button"
                     onClick={() => {
-                      setFormData(prev => ({ ...prev, [field.key]: sug }))
+                      setFormData((prev) => ({ ...prev, [field.key]: sug }))
                     }}
                     className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors border ${
-                      value === sug 
-                        ? 'bg-blue-600/20 text-blue-300 border-blue-500/30' 
+                      value === sug
+                        ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
                         : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-gray-200 hover:bg-gray-700'
                     }`}
                   >
@@ -822,15 +551,15 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
         break
       case 'textarea':
         inputElement = (
-          <textarea 
-            name={field.key} 
+          <textarea
+            name={field.key}
             id={field.key}
             rows={4}
             className={inputClasses}
-            value={value} 
-            onChange={handleInputChange} 
-            required={field.required} 
-            placeholder={field.placeholder} 
+            value={value}
+            onChange={handleInputChange}
+            required={field.required}
+            placeholder={field.placeholder}
             disabled={loading || uploadLoading}
             aria-required={field.required}
             aria-label={field.label}
@@ -840,26 +569,61 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
       case 'url':
         inputElement = (
           <div className="flex items-stretch gap-2">
-            <input 
-              type="url" 
+            <input
+              type="url"
               name={field.key}
               id={field.key}
               className={`flex-grow ${inputClasses}`}
-              value={value} 
-              onChange={handleInputChange} 
-              required={field.required} 
-              placeholder={field.placeholder} 
+              value={value}
+              onChange={handleInputChange}
+              required={field.required}
+              placeholder={field.placeholder}
               disabled={loading || uploadLoading}
               aria-required={field.required}
               aria-label={field.label}
             />
+            {field.uploadBucket && (
+              <label
+                className={`flex-shrink-0 px-3 py-2 bg-white/10 hover:bg-white/15 text-gray-200 border border-white/10 rounded-xl flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-colors ${
+                  uploadLoading ? 'opacity-50 pointer-events-none' : ''
+                }`}
+              >
+                <i className="ri-upload-2-line text-sm" aria-hidden="true"></i>
+                <span>Upload {field.uploadLabel || 'File'}</span>
+                <input
+                  type="file"
+                  accept={field.accept || '*/*'}
+                  className="hidden"
+                  disabled={loading || uploadLoading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    if (file.size > MAX_UPLOAD_BYTES) {
+                      toast.error('File terlalu besar. Maksimal 4MB')
+                      return
+                    }
+                    setUploadLoading(true)
+                    try {
+                      const url = await uploadFile(file, field.uploadBucket)
+                      setFormData((prev) => ({ ...prev, [field.key]: url }))
+                      toast.success(`${field.uploadLabel || 'File'} berhasil diunggah`)
+                    } catch (err) {
+                      toast.error(err.message || 'Gagal mengunggah file')
+                    } finally {
+                      setUploadLoading(false)
+                      e.target.value = ''
+                    }
+                  }}
+                />
+              </label>
+            )}
             {value && (
-              <a 
-                href={value} 
-                target="_blank" 
+              <a
+                href={value}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="flex-shrink-0 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg flex items-center justify-center transition-colors"
-                aria-label="Open URL in new tab"
+                aria-label="Buka URL di tab baru"
               >
                 <i className="ri-external-link-line text-lg" aria-hidden="true"></i>
               </a>
@@ -869,14 +633,14 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
         break
       case 'number':
         inputElement = (
-          <input 
-            type="number" 
+          <input
+            type="number"
             name={field.key}
             id={field.key}
             className={inputClasses}
-            value={value} 
-            onChange={handleInputChange} 
-            required={field.required} 
+            value={value}
+            onChange={handleInputChange}
+            required={field.required}
             disabled={loading || uploadLoading}
             aria-required={field.required}
             aria-label={field.label}
@@ -885,14 +649,14 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
         break
       case 'date':
         inputElement = (
-          <input 
-            type="date" 
+          <input
+            type="date"
             name={field.key}
             id={field.key}
             className={inputClasses}
-            value={value} 
-            onChange={handleInputChange} 
-            required={field.required} 
+            value={value}
+            onChange={handleInputChange}
+            required={field.required}
             disabled={loading || uploadLoading}
             aria-required={field.required}
             aria-label={field.label}
@@ -901,13 +665,13 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
         break
       case 'select':
         inputElement = (
-          <select 
+          <select
             name={field.key}
             id={field.key}
             className={inputClasses}
-            value={value} 
-            onChange={handleInputChange} 
-            required={field.required} 
+            value={value}
+            onChange={handleInputChange}
+            required={field.required}
             disabled={loading || uploadLoading}
             aria-required={field.required}
             aria-label={field.label}
@@ -915,9 +679,11 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
             <option value="">Pilih {field.label}</option>
             {field.options.map((option) => {
               const val = typeof option === 'object' ? option.value : option
-              const label = typeof option === 'object' ? option.label : option
+              const optLabel = typeof option === 'object' ? option.label : option
               return (
-                <option key={val} value={val}>{label}</option>
+                <option key={val} value={val}>
+                  {optLabel}
+                </option>
               )
             })}
           </select>
@@ -926,17 +692,17 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
       case 'checkbox':
         inputElement = (
           <label className="flex items-center gap-3 cursor-pointer group">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               name={field.key}
               id={field.key}
               className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-1 focus:ring-blue-500 cursor-pointer"
-              checked={!!value} 
-              onChange={handleInputChange} 
+              checked={!!value}
+              onChange={handleInputChange}
               disabled={loading || uploadLoading}
               aria-label={field.label}
             />
-            <span className="text-gray-300 group-hover:text-white transition-colors">Enable</span>
+            <span className="text-gray-300 group-hover:text-white transition-colors">Aktifkan</span>
           </label>
         )
         break
@@ -945,9 +711,11 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
         const joinStr = delimiter === '|' ? ' | ' : ', '
         const rawVal = formData[field.key]
         const displayValue = Array.isArray(rawVal) ? rawVal.join(joinStr) : (rawVal ?? '')
-        const defaultPlaceholder = delimiter === '|' ? 'Pisahkan dengan pipa (|): Item 1 | Item 2 | Item 3' : 'Pisahkan dengan koma: tag1, tag2, tag3'
+        const defaultPlaceholder =
+          delimiter === '|'
+            ? 'Pisahkan dengan pipa (|): Item 1 | Item 2 | Item 3'
+            : 'Pisahkan dengan koma: tag1, tag2, tag3'
 
-        // Compute live tags whether formData is Array or String
         let parsedTags = []
         if (Array.isArray(rawVal)) {
           parsedTags = rawVal
@@ -970,14 +738,14 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
                 aria-label={field.label}
               />
             ) : (
-              <input 
-                type="text" 
+              <input
+                type="text"
                 name={field.key}
                 id={field.key}
                 className={inputClasses}
                 value={displayValue}
-                onChange={handleInputChange} 
-                placeholder={field.placeholder || defaultPlaceholder} 
+                onChange={handleInputChange}
+                placeholder={field.placeholder || defaultPlaceholder}
                 disabled={loading || uploadLoading}
                 aria-label={field.label}
               />
@@ -985,17 +753,17 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
             {parsedTags.length > 0 && (
               <div className="flex flex-wrap gap-2 pt-1">
                 {parsedTags.map((tag, index) => (
-                  <span 
-                    key={index} 
+                  <span
+                    key={index}
                     className="inline-flex items-center gap-1.5 bg-gray-700/80 text-gray-200 text-xs font-medium px-2.5 py-1 rounded-md border border-gray-600 shadow-sm"
                   >
                     <span className="max-w-md break-words">{tag}</span>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={() => {
                         const newTags = parsedTags.filter((_, i) => i !== index)
                         setFormData((prev) => ({ ...prev, [field.key]: newTags.join(joinStr) }))
-                      }} 
+                      }}
                       className="ml-1 text-gray-400 hover:text-red-400 transition-colors shrink-0"
                       aria-label={`Hapus tag ${tag}`}
                     >
@@ -1015,34 +783,41 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
           <div className="flex flex-col gap-3">
             {imageUrl && (
               <div className="relative w-full max-w-xs h-40 bg-gray-800 rounded-lg overflow-hidden border border-gray-600 group">
-                <Image src={imageUrl} alt="Preview" fill sizes="384px" className="object-cover" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <button 
-                    type="button" 
+                <Image
+                  src={imageUrl}
+                  alt="Preview"
+                  fill
+                  sizes="384px"
+                  className="object-cover"
+                  unoptimized={!isOptimizableImage(imageUrl)}
+                />
+                <div className="absolute inset-0 bg-black/60 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center justify-center">
+                  <button
+                    type="button"
                     onClick={() => handleRemoveImage(field.key)}
                     className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-md text-sm transition-colors flex items-center gap-1.5"
-                    aria-label="Remove image"
+                    aria-label="Hapus gambar"
                   >
                     <i className="ri-delete-bin-line" aria-hidden="true"></i>
-                    Remove
+                    Hapus
                   </button>
                 </div>
               </div>
             )}
-            <input 
-              type="file" 
+            <input
+              type="file"
               name={field.key}
               id={field.key}
-              accept="image/*, application/pdf"
-              className="w-full px-3 py-2 bg-gray-800 border border-dashed border-gray-600 hover:border-gray-500 rounded-lg text-white text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-gray-700 file:text-gray-200 file:text-sm transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
-              onChange={(e) => handleFileChange(e, field.key)} 
+              accept="image/*"
+              className="w-full px-3 py-2 bg-gray-800 border border-dashed border-gray-600 hover:border-gray-500 rounded-lg text-white text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-gray-700 file:text-gray-200 file:text-sm transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
+              onChange={(e) => handleFileChange(e, field.key)}
               disabled={loading || uploadLoading}
               aria-label={`Upload ${field.label}`}
             />
             {uploadLoading && fileToUpload?.fieldKey === field.key && (
-              <div className="flex items-center gap-2 text-blue-400 text-sm">
+              <div className="flex items-center gap-2 text-accent text-sm">
                 <i className="ri-loader-4-line animate-spin" aria-hidden="true"></i>
-                <span>Uploading...</span>
+                <span>Mengunggah file...</span>
               </div>
             )}
           </div>
@@ -1057,7 +832,11 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
       <div key={field.key} className="space-y-2">
         <label htmlFor={field.key} className="block text-sm font-medium text-gray-400">
           {field.label}
-          {field.required && <span className="text-red-400 ml-1" aria-label="required">*</span>}
+          {field.required && (
+            <span className="text-red-400 ml-1" aria-label="wajib diisi">
+              *
+            </span>
+          )}
         </label>
         {inputElement}
       </div>
@@ -1066,32 +845,61 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
 
   const getBadgeColor = (type) => {
     switch (type) {
-      case 'web': return 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-      case 'bot': return 'bg-green-600/20 text-green-300 border border-green-500/30'
-      case 'android': return 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30'
-      default: return 'bg-gray-600/20 text-gray-300 border border-gray-500/30'
+      case 'web':
+        return 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+      case 'bot':
+        return 'bg-green-600/20 text-green-300 border border-green-500/30'
+      case 'android':
+        return 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30'
+      default:
+        return 'bg-gray-600/20 text-gray-300 border border-gray-500/30'
     }
   }
 
   const getTypeIcon = (type) => {
     switch (type) {
-      case 'web': return 'ri-window-line'
-      case 'bot': return 'ri-robot-line'
-      case 'android': return 'ri-android-line'
-      default: return 'ri-code-box-line'
+      case 'web':
+        return 'ri-window-line'
+      case 'bot':
+        return 'ri-robot-line'
+      case 'android':
+        return 'ri-android-line'
+      default:
+        return 'ri-code-box-line'
     }
   }
 
-  const filteredData = data.filter(item => {
-    const matchesCategory = filterField && selectedFilterValue !== 'all' 
-      ? String(item[filterField.key]) === String(selectedFilterValue)
-      : true;
-      
-    const searchTarget = (item.title || item.name || '').toLowerCase();
-    const matchesSearch = searchQuery.trim() === '' || searchTarget.includes(searchQuery.toLowerCase());
-    
-    return matchesCategory && matchesSearch;
+  const filteredData = data.filter((item) => {
+    const matchesCategory =
+      filterField && activeFilterValue !== 'all'
+        ? String(item[filterField.key]) === String(activeFilterValue)
+        : true
+
+    const query = searchQuery.trim().toLowerCase()
+    const matchesSearch =
+      query === '' ||
+      searchFields.some((f) => {
+        const val = item[f]
+        return val != null && String(val).toLowerCase().includes(query)
+      })
+
+    return matchesCategory && matchesSearch
   })
+
+  const isSearchActive = searchQuery.trim() !== ''
+  const isFilterAllActive = Boolean(filterField && activeFilterValue === 'all')
+  const isDragDisabled = isSearchActive || isFilterAllActive
+
+  const dragDisabledHint = isSearchActive
+    ? 'Kosongkan pencarian untuk mengurutkan item'
+    : isFilterAllActive
+    ? 'Pilih kategori tertentu di atas untuk mengurutkan'
+    : null
+
+  const displayTitle =
+    title || table.charAt(0).toUpperCase() + table.slice(1).replace(/_/g, ' ')
+  const displayDescription =
+    description || `Kelola dan atur struktur data ${displayTitle} Anda.`
 
   return (
     <div className="relative">
@@ -1099,26 +907,28 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-gradient-to-r from-gray-800 to-gray-900 p-6 rounded-2xl border border-gray-700 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center border border-accent/30 shadow-[0_0_15px_rgba(var(--accent),0.2)]">
+            <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center border border-accent/30 shadow-lg shadow-accent/20">
               <i className="ri-database-2-line text-accent"></i>
             </div>
-            {table.charAt(0).toUpperCase() + table.slice(1).replace(/_/g, ' ')}
+            {displayTitle}
           </h1>
-          <p className="text-gray-400 text-sm mt-2 ml-13">Kelola dan atur struktur data {table} Anda.</p>
+          <p className="text-gray-400 text-sm mt-2 ml-13">{displayDescription}</p>
         </div>
         {!(showForm || editingId) && (
           <button
             onClick={() => {
               const initialForm = {}
-              if (filterField && selectedFilterValue !== 'all') {
-                initialForm[filterField.key] = selectedFilterValue
+              if (filterField && activeFilterValue !== 'all') {
+                initialForm[filterField.key] = activeFilterValue
               }
               setFormData(initialForm)
-              initialFormRef.current = initialForm
+              setInitialFormData(initialForm)
+              setEditingId(null)
+              setFileToUpload(null)
               setShowForm(true)
             }}
-            className="px-6 py-3 bg-accent hover:scale-[1.02] active:scale-[0.98] text-bg-dark rounded-full text-sm font-bold transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(var(--accent),0.3)] hover:shadow-[0_0_30px_rgba(var(--accent),0.5)]"
-            aria-label="Add new item"
+            className="px-6 py-3 bg-accent hover:scale-[1.02] active:scale-[0.98] text-bg-dark rounded-full text-sm font-bold transition-all flex items-center gap-2 shadow-lg shadow-accent/30 hover:shadow-accent/40"
+            aria-label="Tambah konten baru"
           >
             <i className="ri-add-line text-lg"></i>
             Tambah Konten Baru
@@ -1128,7 +938,11 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
 
       {/* Error Display */}
       {error && (
-        <div className="mb-6 bg-red-950/50 border border-red-800/60 rounded-xl px-5 py-4 shadow-sm" role="alert" aria-live="assertive">
+        <div
+          className="mb-6 bg-red-950/50 border border-red-800/60 rounded-xl px-5 py-4 shadow-sm"
+          role="alert"
+          aria-live="assertive"
+        >
           <div className="flex items-start gap-3">
             <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
               <i className="ri-error-warning-fill text-red-400 text-lg"></i>
@@ -1143,15 +957,17 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
 
       {/* --- LIST VIEW --- */}
       {!(showForm || editingId) ? (
-        <div className="relative z-10 w-full mb-20 animate-in fade-in zoom-in-95 duration-500">
+        <div className="relative z-10 w-full mb-20">
           <div className="bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
             <div className="px-6 py-5 border-b border-white/10 bg-white/[0.01] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <i className="ri-list-check-2 text-accent"></i>
-                Daftar Konten 
-                <span className="px-2 py-0.5 rounded-md bg-white/10 text-gray-300 text-xs ml-2">{filteredData.length} item</span>
+                Daftar Konten
+                <span className="px-2 py-0.5 rounded-md bg-white/10 text-gray-300 text-xs ml-2">
+                  {filteredData.length} item
+                </span>
               </h2>
-              
+
               <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                 <div className="relative w-full sm:w-56 shrink-0">
                   <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
@@ -1164,31 +980,41 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
                   />
                 </div>
                 {filterField && (
-                <div className="flex flex-wrap gap-1.5 bg-gray-900/80 p-1.5 rounded-xl border border-gray-700 shadow-inner">
-                  {filterField.options.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setSelectedFilterValue(opt.value)}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-300 ${
-                        String(selectedFilterValue) === String(opt.value)
-                          ? 'bg-accent text-bg-dark shadow-[0_0_15px_rgba(var(--accent),0.3)]'
-                          : 'text-gray-400 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                  <div className="flex flex-wrap gap-1.5 bg-gray-900/80 p-1.5 rounded-xl border border-gray-700 shadow-inner">
+                    {filterField.options.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setSelectedFilterValue(opt.value)}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-300 ${
+                          String(activeFilterValue) === String(opt.value)
+                            ? 'bg-accent text-bg-dark shadow-md shadow-accent/30'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="p-5 min-h-[400px]">
+              {dragDisabledHint && (
+                <div className="mb-4 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-gray-400 flex items-center gap-2">
+                  <i className="ri-information-line text-sm text-accent"></i>
+                  <span>{dragDisabledHint}</span>
+                </div>
+              )}
+
               {loading ? (
                 <div className="flex flex-col gap-3 py-2 px-2">
                   {[...Array(5)].map((_, i) => (
-                    <div key={i} className="w-full h-16 bg-white/[0.03] animate-pulse rounded-xl border border-white/5 flex items-center px-4 gap-4">
+                    <div
+                      key={i}
+                      className="w-full h-16 bg-white/[0.03] animate-pulse rounded-xl border border-white/5 flex items-center px-4 gap-4"
+                    >
                       <div className="w-10 h-10 bg-white/10 rounded-lg shrink-0"></div>
                       <div className="flex-1 space-y-2">
                         <div className="h-3 bg-white/10 rounded w-1/3"></div>
@@ -1204,7 +1030,9 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
                     <i className="ri-inbox-2-line text-3xl text-gray-500"></i>
                   </div>
                   <h3 className="text-white font-semibold mb-1">Data Kosong</h3>
-                  <p className="text-gray-500 text-sm max-w-xs text-center">Belum ada konten untuk kategori ini. Klik &quot;Tambah Baru&quot; untuk memulai.</p>
+                  <p className="text-gray-500 text-sm max-w-xs text-center">
+                    Belum ada konten untuk kategori ini. Klik &quot;Tambah Konten Baru&quot; untuk memulai.
+                  </p>
                 </div>
               ) : (
                 <DragDropList
@@ -1217,81 +1045,101 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
                   columns={columns}
                   featuredLimit={featuredLimit}
                   enableFeaturedDrag={enableFeaturedDrag}
-                  disableDrag={filterField && selectedFilterValue === 'all'}
+                  disableDrag={isDragDisabled}
                 />
               )}
             </div>
           </div>
         </div>
       ) : (
-        /* --- FORM VIEW (FULL PAGE) --- */
-        <div className="relative z-10 w-full max-w-4xl mx-auto mb-20 animate-in fade-in slide-in-from-bottom-8 duration-500">
+        /* --- FORM VIEW --- */
+        <div className="relative z-10 w-full max-w-4xl mx-auto mb-20">
           <div className="bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
             {/* Header */}
             <div className="px-6 sm:px-8 py-6 border-b border-white/10 bg-white/[0.01] flex justify-between items-center">
               <h2 className="text-xl font-bold text-white flex items-center gap-3">
                 {editingId ? (
-                  <><div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center"><i className="ri-edit-box-line text-accent"></i></div> Edit Konten</>
+                  <>
+                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                      <i className="ri-edit-box-line text-accent"></i>
+                    </div>{' '}
+                    Edit Konten
+                  </>
                 ) : (
-                  <><div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center"><i className="ri-add-box-line text-accent"></i></div> Tambah Konten</>
+                  <>
+                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                      <i className="ri-add-box-line text-accent"></i>
+                    </div>{' '}
+                    Tambah Konten Baru
+                  </>
                 )}
               </h2>
               <button
+                type="button"
                 onClick={handleCancelForm}
                 className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-red-500/80 hover:rotate-90 transition-all border border-white/10"
-                aria-label="Kembali"
+                aria-label="Tutup form"
               >
                 <i className="ri-close-line text-xl"></i>
               </button>
             </div>
-            
+
             {/* Form Body */}
             <div className="p-6 sm:p-8">
               <form id="crud-form" onSubmit={handleSubmit} className="flex flex-col gap-6">
                 {(() => {
                   const groupedFields = fields.reduce((acc, field) => {
-                    const group = field.group || 'Informasi Umum';
-                    if (!acc[group]) acc[group] = [];
-                    acc[group].push(field);
-                    return acc;
-                  }, {});
+                    const group = field.group || 'Informasi Umum'
+                    if (!acc[group]) acc[group] = []
+                    acc[group].push(field)
+                    return acc
+                  }, {})
 
                   return Object.entries(groupedFields).map(([groupName, groupFields]) => {
-                    const visibleFields = groupFields.filter(f => !f.showWhen || f.showWhen(formData));
-                    if (visibleFields.length === 0) return null;
+                    const visibleFields = groupFields.filter(
+                      (f) => !f.showWhen || f.showWhen(formData)
+                    )
+                    if (visibleFields.length === 0) return null
 
                     return (
-                      <div key={groupName} className="bg-bg-dark/50 rounded-2xl border border-white/10 overflow-hidden">
+                      <div
+                        key={groupName}
+                        className="bg-bg-dark/50 rounded-2xl border border-white/10 overflow-hidden"
+                      >
                         <div className="px-5 py-4 border-b border-white/10 bg-white/[0.02] flex items-center gap-3">
                           <div className="w-1.5 h-4 bg-accent rounded-full"></div>
-                          <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest">{groupName}</h3>
+                          <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest">
+                            {groupName}
+                          </h3>
                         </div>
                         <div className="p-5 sm:p-6 flex flex-col gap-5">
                           {groupFields.map((field) => {
-                            const rendered = renderField(field);
-                            if (!rendered) return null;
+                            const rendered = renderField(field)
+                            if (!rendered) return null
                             return (
                               <div key={field.key} className="w-full">
                                 {rendered}
                               </div>
-                            );
+                            )
                           })}
                         </div>
                       </div>
-                    );
-                  });
+                    )
+                  })
                 })()}
               </form>
 
-              {/* Related Section (e.g., Timeline / Project Images) */}
+              {/* Related Section (Galeri / Foto Penunjang) */}
               {relatedSection && (
-                editingId && relatedSection.showWhen(formData) ? (
-                  <div className="mt-8 pt-8 border-t border-white/10">
+                editingId && (!relatedSection.showWhen || relatedSection.showWhen(formData)) ? (
+                  <div id="related-section" className="mt-8 pt-8 border-t border-white/10 scroll-mt-6">
                     <div className="flex items-center gap-3 mb-6">
-                      <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center border border-purple-500/30 shadow-lg shadow-purple-500/20">
                         <i className="ri-image-line text-purple-400 text-lg"></i>
                       </div>
-                      <h3 className="text-white font-bold text-lg tracking-wide">Galeri & Media Penunjang</h3>
+                      <h3 className="text-white font-bold text-lg tracking-wide">
+                        Galeri &amp; Media Penunjang
+                      </h3>
                     </div>
                     <RelatedImages
                       parentId={editingId}
@@ -1300,12 +1148,15 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
                       label={relatedSection.label}
                       addLabel={relatedSection.addLabel}
                       hasCaption={relatedSection.hasCaption}
+                      bucket={relatedSection.bucket}
                     />
                   </div>
-                ) : !editingId ? (
+                ) : !editingId && (!relatedSection.showWhen || relatedSection.showWhen(formData)) ? (
                   <div className="mt-8 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center gap-3 text-blue-300 text-sm">
                     <i className="ri-information-line text-lg shrink-0"></i>
-                    <span>Simpan konten ini terlebih dahulu. Setelah tersimpan, klik <strong>Edit</strong> untuk menambahkan <strong>Foto &amp; Dokumentasi Penunjang</strong>.</span>
+                    <span>
+                      Simpan konten ini terlebih dahulu. Setelah tersimpan, formulir akan otomatis beralih ke mode <strong>Edit</strong> agar Anda dapat langsung menambahkan <strong>{relatedSection.label || 'Media Penunjang'}</strong>.
+                    </span>
                   </div>
                 ) : null
               )}
@@ -1313,21 +1164,21 @@ export default function CrudManager({ table, fields, columns, relatedSection = n
 
             {/* Form Footer */}
             <div className="px-6 sm:px-8 py-5 border-t border-white/10 bg-white/[0.01] flex flex-col sm:flex-row justify-end gap-3 rounded-b-3xl">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={handleCancelForm}
                 className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 font-bold rounded-full text-sm transition-all disabled:opacity-50"
                 disabled={loading || uploadLoading}
               >
                 Batalkan
               </button>
-              <button 
+              <button
                 type="submit"
                 form="crud-form"
-                className="px-8 py-3 bg-accent hover:scale-[1.02] active:scale-[0.98] text-bg-dark rounded-full text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(var(--accent),0.3)] hover:shadow-[0_0_30px_rgba(var(--accent),0.5)]"
+                className="px-8 py-3 bg-accent hover:scale-[1.02] active:scale-[0.98] text-bg-dark rounded-full text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-accent/30 hover:shadow-accent/40"
                 disabled={loading || uploadLoading}
               >
-                {(loading || uploadLoading) ? (
+                {loading || uploadLoading ? (
                   <i className="ri-loader-4-line animate-spin text-lg"></i>
                 ) : (
                   <i className="ri-save-3-line text-lg"></i>

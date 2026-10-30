@@ -1,18 +1,17 @@
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import { useToast } from '../components/ToastProvider'
+import { useSafeNavigation } from '../hooks/useNavigation'
+import { apiRequest, uploadFile, MAX_UPLOAD_BYTES } from '@/app/admin/utils/api'
 import Cropper from 'react-easy-crop'
 import getCroppedImg from '../components/cropImage'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseKey)
-
 export default function ProfileAdmin() {
   const [profile, setProfile] = useState({
+    id: 1,
     full_name: '',
+    bio: '',
     availability_status: 'available',
     cv_url: '',
     cv_url_en: '',
@@ -24,7 +23,7 @@ export default function ProfileAdmin() {
   const [uploadingCvEn, setUploadingCvEn] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [tableMissing, setTableMissing] = useState(false)
-  
+
   // Crop states
   const [cropModalOpen, setCropModalOpen] = useState(false)
   const [imageSrc, setImageSrc] = useState(null)
@@ -33,73 +32,85 @@ export default function ProfileAdmin() {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null)
 
   const toast = useToast()
+  const { redirectToLogin } = useSafeNavigation()
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfileData = useCallback(async () => {
     try {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('profile')
-        .select('*')
-        .eq('id', 1)
-        .single()
-
-      if (error) {
-        if (error.code === 'PGRST205' || error.code === 'PGRST116') {
-          // Table doesn't exist or row doesn't exist
-          if (error.code === 'PGRST205') setTableMissing(true)
-        } else {
-          toast.error('Gagal memuat profil: ' + error.message)
-        }
-      } else if (data) {
-        setProfile(data)
+      const rows = await apiRequest('/api/admin/profile', { fallback: 'Gagal memuat profil' })
+      if (Array.isArray(rows) && rows.length > 0) {
+        setProfile(prev => ({ ...prev, ...rows[0] }))
       }
     } catch (err) {
-      console.error(err)
-      toast.error('Terjadi kesalahan sistem')
+      if (err.status === 401) {
+        redirectToLogin()
+        return
+      }
+      if (err.message && /relation.*profile.*does not exist/i.test(err.message)) {
+        setTableMissing(true)
+      } else {
+        toast.error('Gagal memuat profil: ' + err.message)
+      }
     } finally {
       setLoading(false)
     }
-  }, [toast])
+  }, [toast, redirectToLogin])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchProfile()
-  }, [fetchProfile])
+    let ignore = false
+    async function init() {
+      if (!ignore) {
+        await fetchProfileData()
+      }
+    }
+    init()
+    return () => {
+      ignore = true
+    }
+  }, [fetchProfileData])
+
+  const handleRetryFetch = () => {
+    setLoading(true)
+    setTableMissing(false)
+    fetchProfileData()
+  }
 
   const handleSave = async (e) => {
     e.preventDefault()
     setSaving(true)
-    
+
     try {
-      const payload = { ...profile, id: 1 }
-      
-      let res = await fetch('/api/admin/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      
-      if (res.status === 404) {
-        res = await fetch('/api/admin/profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+      const payload = { ...profile, id: profile.id || 1 }
+
+      let res
+      try {
+        res = await apiRequest('/api/admin/profile', {
+          method: 'PUT',
+          body: payload,
+          fallback: 'Gagal memperbarui profil'
         })
-      }
-      
-      const resData = await res.json().catch(() => ({}))
-      
-      if (!res.ok) {
-        if (resData.details && resData.details.includes('relation "profile" does not exist')) {
-          setTableMissing(true)
-          throw new Error('Tabel profile belum dibuat di database.')
+      } catch (putErr) {
+        if (putErr.status === 404) {
+          res = await apiRequest('/api/admin/profile', {
+            method: 'POST',
+            body: payload,
+            fallback: 'Gagal membuat profil baru'
+          })
+        } else {
+          throw putErr
         }
-        throw new Error(resData.error || 'Terjadi kesalahan saat menyimpan')
       }
-      
+
+      const updated = Array.isArray(res) ? res[0] : res
+      if (updated) setProfile(prev => ({ ...prev, ...updated }))
       toast.success('Profil berhasil disimpan!')
     } catch (err) {
-      console.error(err)
+      if (err.status === 401) {
+        redirectToLogin()
+        return
+      }
+      if (err.message && /relation.*profile.*does not exist/i.test(err.message)) {
+        setTableMissing(true)
+      }
       toast.error('Gagal menyimpan profil: ' + err.message)
     } finally {
       setSaving(false)
@@ -108,28 +119,21 @@ export default function ProfileAdmin() {
 
   const handleFileUpload = async (file, bucket, stateSetter, urlField) => {
     if (!file) return
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error('File terlalu besar. Maksimal 4MB.')
+      return
+    }
     stateSetter(true)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('bucket', bucket)
-      
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      })
-      
-      const data = await res.json()
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to upload')
-      }
-
-      setProfile(prev => ({ ...prev, [urlField]: data.url }))
+      const publicUrl = await uploadFile(file, bucket)
+      setProfile(prev => ({ ...prev, [urlField]: publicUrl }))
       toast.success('File berhasil diunggah')
     } catch (err) {
-      console.error(err)
-      toast.error('Gagal mengunggah file: ' + err.message)
+      if (err.status === 401) {
+        redirectToLogin()
+        return
+      }
+      toast.error(err.message || 'Gagal mengunggah file')
     } finally {
       stateSetter(false)
     }
@@ -142,6 +146,11 @@ export default function ProfileAdmin() {
   const handleAvatarSelect = async (e) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0]
+      if (file.size > MAX_UPLOAD_BYTES) {
+        toast.error('File foto terlalu besar. Maksimal 4MB.')
+        e.target.value = ''
+        return
+      }
       const reader = new FileReader()
       reader.addEventListener('load', () => {
         setImageSrc(reader.result)
@@ -166,32 +175,34 @@ export default function ProfileAdmin() {
 
   if (tableMissing) {
     return (
-      <div className="max-w-3xl mx-auto mt-8 bg-red-900/20 border border-red-500/50 p-6 rounded-xl">
+      <div className="max-w-3xl mx-auto mt-8 bg-red-900/20 border border-red-500/50 p-6 rounded-2xl">
         <h2 className="text-xl font-bold text-red-400 mb-4">Tabel Database Belum Tersedia</h2>
         <p className="text-gray-300 mb-4">
           Anda perlu membuat tabel <code className="bg-black/50 px-2 py-1 rounded">profile</code> di Supabase sebelum dapat menggunakan fitur ini. Silakan jalankan SQL berikut di SQL Editor Supabase Anda:
         </p>
-        <pre className="bg-black p-4 rounded-lg overflow-x-auto text-sm text-gray-300 font-mono mb-4">
-{`CREATE TABLE profile (
+        <pre className="bg-black p-4 rounded-xl overflow-x-auto text-sm text-gray-300 font-mono mb-4">
+{`CREATE TABLE public.profile (
   id INT PRIMARY KEY DEFAULT 1,
   full_name TEXT NOT NULL,
+  bio TEXT,
   availability_status TEXT DEFAULT 'available',
   cv_url TEXT,
   cv_url_en TEXT,
-  avatar_url TEXT
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-INSERT INTO profile (id, full_name, availability_status) 
-VALUES (1, 'Galang Pramudito', 'available');
+INSERT INTO public.profile (id, full_name, availability_status)
+VALUES (1, 'Galang Arrauf Pramudito', 'available')
+ON CONFLICT (id) DO NOTHING;
 
--- Aktifkan RLS jika diperlukan
-ALTER TABLE profile ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable read access for all users" ON profile FOR SELECT USING (true);
-CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USING (auth.role() = 'authenticated');`}
+ALTER TABLE public.profile ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read profile" ON public.profile FOR SELECT USING (true);`}
         </pre>
-        <button 
-          onClick={fetchProfile}
-          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg transition-colors"
+        <button
+          onClick={handleRetryFetch}
+          className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-full transition-colors"
         >
           Saya Sudah Menjalankan SQL
         </button>
@@ -210,11 +221,14 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Pengaturan Profil & CV</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Pengaturan Profil &amp; CV</h1>
+          <p className="text-sm text-gray-400 mt-1">Kelola data pribadi, biografi, dan dokumen CV yang tampil di beranda dan halaman About.</p>
+        </div>
       </div>
 
-      <form onSubmit={handleSave} className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-6">
-        
+      <form onSubmit={handleSave} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
+
         {/* Foto Profil */}
         <div>
           <label className="block text-sm font-medium text-gray-400 mb-2">Foto Profil (Avatar)</label>
@@ -228,29 +242,29 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
               )}
             </div>
             <div className="flex-1 w-full space-y-3">
-              <input 
-                type="url" 
-                value={profile.avatar_url || ''} 
+              <input
+                type="url"
+                value={profile.avatar_url || ''}
                 onChange={(e) => setProfile({...profile, avatar_url: e.target.value})}
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
-                placeholder="https://... atau upload file"
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
+                placeholder="https://... atau upload file baru"
               />
-              <div className="relative">
-                <input 
-                  type="file" 
+              <div className="relative inline-block">
+                <input
+                  type="file"
                   accept="image/*"
                   onChange={handleAvatarSelect}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   disabled={uploadingAvatar}
                   value=""
                 />
-                <button 
-                  type="button" 
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-sm font-medium text-white rounded-lg transition-colors flex items-center gap-2"
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium text-white rounded-xl transition-colors flex items-center gap-2"
                   disabled={uploadingAvatar}
                 >
                   <i className={uploadingAvatar ? "ri-loader-4-line animate-spin" : "ri-upload-2-line"}></i>
-                  {uploadingAvatar ? 'Mengunggah...' : 'Upload Foto'}
+                  {uploadingAvatar ? 'Mengunggah...' : 'Upload & Potong Foto'}
                 </button>
               </div>
             </div>
@@ -259,13 +273,14 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
 
         {/* Status Tersedia */}
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-2">Status Ketersediaan</label>
-          <select 
-            value={profile.availability_status || 'available'} 
+          <label htmlFor="availability-select" className="block text-sm font-medium text-gray-400 mb-2">Status Ketersediaan</label>
+          <select
+            id="availability-select"
+            value={profile.availability_status || 'available'}
             onChange={(e) => setProfile({...profile, availability_status: e.target.value})}
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
+            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
           >
-            <option value="available">Tersedia untuk Internship & Freelance</option>
+            <option value="available">Tersedia untuk Internship &amp; Freelance</option>
             <option value="freelance_only">Hanya Freelance</option>
             <option value="internship_only">Hanya Internship</option>
             <option value="unavailable">Tidak Tersedia Saat Ini</option>
@@ -274,40 +289,54 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
 
         {/* Nama Lengkap */}
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-2">Nama Lengkap (Ditampilkan di Hero)</label>
-          <input 
-            type="text" 
-            value={profile.full_name || ''} 
+          <label htmlFor="fullname-input" className="block text-sm font-medium text-gray-400 mb-2">Nama Lengkap (Ditampilkan di Hero &amp; Meta)</label>
+          <input
+            id="fullname-input"
+            type="text"
+            value={profile.full_name || ''}
             onChange={(e) => setProfile({...profile, full_name: e.target.value})}
             required
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
-            placeholder="Galang Pramudito"
+            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
+            placeholder="Galang Arrauf Pramudito"
+          />
+        </div>
+
+        {/* Bio Ringkas */}
+        <div>
+          <label htmlFor="bio-input" className="block text-sm font-medium text-gray-400 mb-2">Bio Ringkas (Ditampilkan di Halaman About)</label>
+          <textarea
+            id="bio-input"
+            rows={3}
+            value={profile.bio || ''}
+            onChange={(e) => setProfile({...profile, bio: e.target.value})}
+            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
+            placeholder="Web Developer dari Sidoarjo yang berfokus pada arsitektur backend tangguh..."
           />
         </div>
 
         {/* CV PDF */}
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-2">Curriculum Vitae (PDF)</label>
+          <label className="block text-sm font-medium text-gray-400 mb-2">Curriculum Vitae (PDF - Bahasa Indonesia)</label>
           <div className="flex flex-col gap-3">
-            <input 
-              type="url" 
-              value={profile.cv_url || ''} 
+            <input
+              type="url"
+              value={profile.cv_url || ''}
               onChange={(e) => setProfile({...profile, cv_url: e.target.value})}
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
-              placeholder="https://... atau upload PDF"
+              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
+              placeholder="https://... atau upload file PDF (maks. 4MB)"
             />
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative">
-                <input 
-                  type="file" 
+                <input
+                  type="file"
                   accept="application/pdf"
-                  onChange={(e) => handleFileUpload(e.target.files[0], 'certificates', setUploadingCv, 'cv_url')}
+                  onChange={(e) => handleFileUpload(e.target.files?.[0], 'certificates', setUploadingCv, 'cv_url')}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   disabled={uploadingCv}
                 />
-                <button 
-                  type="button" 
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-sm font-medium text-white rounded-lg transition-colors flex items-center gap-2"
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium text-white rounded-xl transition-colors flex items-center gap-2"
                   disabled={uploadingCv}
                 >
                   <i className={uploadingCv ? "ri-loader-4-line animate-spin" : "ri-upload-2-line"}></i>
@@ -315,11 +344,11 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
                 </button>
               </div>
               {profile.cv_url && (
-                <a 
-                  href={profile.cv_url} 
-                  target="_blank" 
+                <a
+                  href={profile.cv_url}
+                  target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-accent hover:text-white transition-colors flex items-center gap-1"
+                  className="text-sm text-accent hover:underline flex items-center gap-1"
                 >
                   <i className="ri-external-link-line"></i> Lihat PDF saat ini
                 </a>
@@ -332,25 +361,25 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
         <div>
           <label className="block text-sm font-medium text-gray-400 mb-2">Curriculum Vitae (PDF - English)</label>
           <div className="flex flex-col gap-3">
-            <input 
-              type="url" 
-              value={profile.cv_url_en || ''} 
+            <input
+              type="url"
+              value={profile.cv_url_en || ''}
               onChange={(e) => setProfile({...profile, cv_url_en: e.target.value})}
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
-              placeholder="https://... atau upload PDF (English)"
+              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-accent"
+              placeholder="https://... atau upload file PDF English (maks. 4MB)"
             />
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative">
-                <input 
-                  type="file" 
+                <input
+                  type="file"
                   accept="application/pdf"
-                  onChange={(e) => handleFileUpload(e.target.files[0], 'certificates', setUploadingCvEn, 'cv_url_en')}
+                  onChange={(e) => handleFileUpload(e.target.files?.[0], 'certificates', setUploadingCvEn, 'cv_url_en')}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   disabled={uploadingCvEn}
                 />
-                <button 
-                  type="button" 
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-sm font-medium text-white rounded-lg transition-colors flex items-center gap-2"
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium text-white rounded-xl transition-colors flex items-center gap-2"
                   disabled={uploadingCvEn}
                 >
                   <i className={uploadingCvEn ? "ri-loader-4-line animate-spin" : "ri-upload-2-line"}></i>
@@ -358,11 +387,11 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
                 </button>
               </div>
               {profile.cv_url_en && (
-                <a 
-                  href={profile.cv_url_en} 
-                  target="_blank" 
+                <a
+                  href={profile.cv_url_en}
+                  target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-accent hover:text-white transition-colors flex items-center gap-1"
+                  className="text-sm text-accent hover:underline flex items-center gap-1"
                 >
                   <i className="ri-external-link-line"></i> Lihat PDF (EN)
                 </a>
@@ -372,10 +401,10 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
         </div>
 
         <div className="pt-4 border-t border-gray-800">
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={saving}
-            className="w-full py-3 bg-accent hover:bg-indigo-600 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full py-3 bg-accent hover:scale-[1.01] active:scale-[0.99] text-bg-dark text-sm font-bold rounded-full transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-accent/30 hover:shadow-accent/40"
           >
             {saving ? (
               <><i className="ri-loader-4-line animate-spin"></i> Menyimpan...</>
@@ -389,7 +418,7 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
       {/* Crop Modal */}
       {cropModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
-          <div className="bg-gray-900 rounded-xl w-full max-w-lg overflow-hidden border border-gray-800 flex flex-col">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-lg overflow-hidden border border-gray-800 flex flex-col shadow-2xl">
             <div className="p-4 border-b border-gray-800 flex justify-between items-center">
               <h3 className="text-lg font-bold text-white">Potong Foto Profil</h3>
               <button type="button" onClick={() => { setCropModalOpen(false); setImageSrc(null); }} className="text-gray-400 hover:text-white">
@@ -409,32 +438,33 @@ CREATE POLICY "Enable all access for authenticated users" ON profile FOR ALL USI
             </div>
             <div className="p-4 space-y-4">
               <div>
-                <label className="text-sm text-gray-400 block mb-2">Zoom</label>
+                <label htmlFor="zoom-range" className="text-sm text-gray-400 block mb-2">Zoom</label>
                 <input
+                  id="zoom-range"
                   type="range"
                   value={zoom}
                   min={1}
                   max={3}
                   step={0.1}
-                  aria-labelledby="Zoom"
-                  onChange={(e) => setZoom(e.target.value)}
-                  className="w-full"
+                  aria-label="Zoom foto"
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="w-full accent-white"
                 />
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => { setCropModalOpen(false); setImageSrc(null); }}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-full text-sm font-semibold transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="button"
                   onClick={handleCropImage}
-                  className="px-4 py-2 bg-accent hover:bg-indigo-600 text-white rounded-lg transition-colors font-medium"
+                  className="px-5 py-2 bg-accent text-bg-dark rounded-full text-sm font-bold transition-all shadow-md shadow-accent/20"
                 >
-                  Simpan & Upload
+                  Simpan &amp; Upload
                 </button>
               </div>
             </div>

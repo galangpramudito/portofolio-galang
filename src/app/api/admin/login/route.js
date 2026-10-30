@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { SESSION_COOKIE, SESSION_MAX_AGE, createSessionToken } from '@/lib/session'
 
 const attempts = new Map() // ip → { count, resetAt }
 
@@ -100,15 +101,15 @@ export async function POST(req) {
     attempts.delete(ip)
     cleanupAttempts() // Periodic cleanup
     
-    // Generate secure session token derived from admin password (HMAC)
-    const sessionToken = crypto.createHmac('sha256', process.env.ADMIN_PASSWORD).update('admin_session_salt').digest('hex')
-    
+    // Signed token with expiry (see src/lib/session.js)
+    const sessionToken = await createSessionToken()
+
     const cookieStore = await cookies()
-    cookieStore.set('admin_session', sessionToken, {
+    cookieStore.set(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 24, // 1 day instead of 7 for better security
+      maxAge: SESSION_MAX_AGE,
       path: '/',
     })
 
@@ -116,11 +117,7 @@ export async function POST(req) {
   } catch (error) {
     console.error('Login error:', error)
     return NextResponse.json(
-      { 
-        error: 'An error occurred during login',
-        details: error.message,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      },
+      { error: 'Terjadi kesalahan saat login' },
       { status: 500 }
     )
   }

@@ -2,30 +2,53 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSafeNavigation } from '../hooks/useNavigation'
+import { useConfirm } from './ToastProvider'
 
 export default function AdminNav() {
   const pathname = usePathname()
   const [loading, setLoading] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const navRef = useRef(null)
   const { navigate } = useSafeNavigation()
+  const confirm = useConfirm()
+
+  // Close mobile menu on Escape key and outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    const handleClickOutside = (e) => {
+      if (navRef.current && !navRef.current.contains(e.target)) {
+        setMenuOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('click', handleClickOutside)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('click', handleClickOutside)
+    }
+  }, [menuOpen])
 
   if (pathname === '/admin/login') return null
 
   const handleLogout = async () => {
-    if (!confirm('Yakin ingin logout?')) return
-    
+    const ok = await confirm({
+      title: 'Keluar dari Admin?',
+      message: 'Sesi Anda akan diakhiri dan dialihkan ke halaman login.',
+      confirmLabel: 'Logout',
+      danger: true,
+    })
+    if (!ok) return
+
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/logout', { method: 'POST' })
-      if (res.ok) {
-        navigate('/admin/login', { replace: true })
-      } else {
-        navigate('/admin/login', { replace: true })
-      }
-    } catch (error) {
-      console.error('Logout error:', error)
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' })
+      navigate('/admin/login', { replace: true })
+    } catch {
       navigate('/admin/login', { replace: true })
     } finally {
       setLoading(false)
@@ -34,11 +57,12 @@ export default function AdminNav() {
 
   const navItems = [
     { href: '/admin', label: 'Dashboard', icon: 'ri-dashboard-3-line', exact: true },
-    { href: '/admin/profile', label: 'Profile', icon: 'ri-user-settings-line' },
+    { href: '/admin/profile', label: 'Profil', icon: 'ri-user-settings-line' },
     { href: '/admin/timeline', label: 'Timeline', icon: 'ri-time-line' },
-    { href: '/admin/projects', label: 'Projects', icon: 'ri-code-box-line' },
-    { href: '/admin/project_types', label: 'Jenis Project', icon: 'ri-list-settings-line' },
-    { href: '/admin/certificates', label: 'Certificates', icon: 'ri-award-line' },
+    { href: '/admin/skills', label: 'Skills', icon: 'ri-tools-line' },
+    { href: '/admin/projects', label: 'Proyek', icon: 'ri-code-box-line' },
+    { href: '/admin/project_types', label: 'Kategori', icon: 'ri-list-settings-line' },
+    { href: '/admin/certificates', label: 'Sertifikat', icon: 'ri-award-line' },
   ]
 
   const isActive = (href, exact = false) => {
@@ -47,18 +71,18 @@ export default function AdminNav() {
   }
 
   return (
-    <nav 
-      className="sticky top-6 z-50 px-4 md:px-0"
-      role="navigation"
-      aria-label="Admin navigation"
+    <nav
+      ref={navRef}
+      className="sticky top-6 z-50 px-4"
+      aria-label="Navigasi admin"
     >
-      <div className="max-w-4xl mx-auto bg-white/5 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl px-4 md:px-6">
+      <div className="max-w-5xl mx-auto bg-white/5 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl px-4 lg:px-6">
         <div className="flex items-center justify-between h-14">
           {/* Logo */}
-          <Link 
-            href="/admin" 
-            className="text-sm font-bold text-white tracking-widest uppercase flex items-center gap-2 group"
-            aria-label="Admin Dashboard Home"
+          <Link
+            href="/admin"
+            className="text-sm font-bold text-white tracking-widest uppercase flex items-center gap-2 group shrink-0"
+            aria-label="Dashboard Admin"
           >
             <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center group-hover:scale-110 transition-transform">
               <i className="ri-command-line text-accent"></i>
@@ -66,8 +90,8 @@ export default function AdminNav() {
             <span className="hidden sm:inline">Admin</span>
           </Link>
 
-          {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-1">
+          {/* Desktop Nav (shown from lg: breakpoint to prevent wrapping) */}
+          <div className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => {
               const active = isActive(item.href, item.exact)
               return (
@@ -75,9 +99,9 @@ export default function AdminNav() {
                   key={item.href}
                   href={item.href}
                   className={`
-                    px-4 py-2 rounded-full text-sm font-medium transition-all duration-300
-                    ${active 
-                      ? 'bg-accent text-bg-dark shadow-[0_0_15px_rgba(var(--accent),0.5)]' 
+                    px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-300
+                    ${active
+                      ? 'bg-accent text-bg-dark shadow-md shadow-accent/30'
                       : 'text-gray-400 hover:text-white hover:bg-white/10'
                     }
                   `}
@@ -88,25 +112,25 @@ export default function AdminNav() {
                 </Link>
               )
             })}
-            
+
             <div className="w-px h-5 bg-white/10 mx-2"></div>
-            
+
             <button
               onClick={handleLogout}
               disabled={loading}
-              className="px-4 py-2 rounded-full text-gray-400 hover:text-red-400 hover:bg-red-500/10 text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5"
-              aria-label="Logout from admin panel"
+              className="px-3.5 py-1.5 rounded-full text-gray-400 hover:text-red-400 hover:bg-red-500/10 text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              aria-label="Logout dari admin"
             >
               <i className="ri-logout-circle-r-line"></i>
-              {loading ? 'Wait...' : 'Logout'}
+              {loading ? '...' : 'Logout'}
             </button>
           </div>
 
-          {/* Mobile Hamburger */}
+          {/* Mobile / Tablet Hamburger (visible below lg:) */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 hover:text-white hover:bg-white/10 transition-all"
-            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            className="lg:hidden w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 hover:text-white hover:bg-white/10 transition-all"
+            aria-label={menuOpen ? 'Tutup menu' : 'Buka menu'}
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
           >
@@ -117,10 +141,9 @@ export default function AdminNav() {
 
       {/* Mobile Menu */}
       {menuOpen && (
-        <div 
+        <div
           id="mobile-menu"
-          className="md:hidden mt-3 max-w-4xl mx-auto bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-2 animate-in fade-in slide-in-from-top-4 duration-300"
-          role="menu"
+          className="lg:hidden mt-3 max-w-5xl mx-auto bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-2"
         >
           <div className="flex flex-col space-y-1">
             {navItems.map((item) => {
@@ -131,13 +154,12 @@ export default function AdminNav() {
                   href={item.href}
                   onClick={() => setMenuOpen(false)}
                   className={`
-                    flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all
+                    flex items-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all
                     ${active
-                      ? 'bg-accent text-bg-dark shadow-[0_0_15px_rgba(var(--accent),0.3)]'
+                      ? 'bg-accent text-bg-dark shadow-md shadow-accent/30'
                       : 'text-gray-300 hover:text-white hover:bg-white/10'
                     }
                   `}
-                  role="menuitem"
                   aria-current={active ? 'page' : undefined}
                 >
                   <i className={`${item.icon} mr-3 text-lg ${active ? 'text-bg-dark' : 'text-gray-400'}`}></i>
@@ -145,18 +167,17 @@ export default function AdminNav() {
                 </Link>
               )
             })}
-            
+
             <div className="h-px bg-white/10 my-2"></div>
-            
+
             <button
               onClick={handleLogout}
               disabled={loading}
-              className="w-full flex items-center px-4 py-3 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 text-sm font-medium transition-colors disabled:opacity-50"
-              role="menuitem"
-              aria-label="Logout from admin panel"
+              className="w-full flex items-center px-4 py-2.5 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 text-sm font-medium transition-colors disabled:opacity-50"
+              aria-label="Logout dari admin"
             >
               <i className="ri-logout-circle-r-line mr-3 text-lg"></i>
-              {loading ? 'Logging out...' : 'Logout'}
+              {loading ? 'Memproses...' : 'Logout'}
             </button>
           </div>
         </div>

@@ -27,7 +27,12 @@ export const DynamicIsland = memo(function DynamicIsland({ activeSection }) {
     e.stopPropagation();
     const el = document.getElementById(targetId);
     if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const lenis = window.__lenis;
+      if (lenis) {
+        lenis.scrollTo(el, { offset: -20, duration: 1.2 });
+      } else {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       setIsExpanded(false);
     }
   }, []);

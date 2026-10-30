@@ -284,6 +284,17 @@ export default function AboutClient({ initialTimeline = [], initialProfile = nul
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (selectedImage) {
+      window.__lenis?.stop();
+    } else {
+      window.__lenis?.start();
+    }
+    return () => {
+      window.__lenis?.start();
+    };
+  }, [selectedImage]);
+
   const filteredTimeline = useMemo(() => {
     if (activeTab === "all") return timelineData;
     return timelineData.filter((item) => {

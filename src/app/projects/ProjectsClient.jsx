@@ -9,21 +9,11 @@ import {
   getEmbedUrl,
   normalizeProjectType,
   STATUS_BADGE,
+  getProjectPath,
 } from "@/lib/project-utils";
 
 import { BackButton } from "@/app/components/BackButton";
 import { DarkModeToggle } from "@/app/components/DarkModeToggle";
-
-function GenerateSlug(title) {
-  const base = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
-  return base;
-}
 
 function ProjectsClientContent({ initialProjects }) {
   const [filter, setFilter] = useState("all");
@@ -95,7 +85,7 @@ function ProjectsClientContent({ initialProjects }) {
       <div className="max-w-6xl mx-auto mb-8 md:mb-16 relative z-10 pt-4 md:pt-0">
         <BackButton href="/" label="Back to Home" />
         <h1 className="font-display text-4xl md:text-6xl font-normal mb-3 md:mb-4 tracking-tight leading-tight text-gray-900 dark:text-white">
-          Galang Arrauf Pramudito
+          Portofolio <span className="text-accent font-serif italic">Project</span>
         </h1>
         <p className="text-gray-400 max-w-xl text-sm md:text-base font-light leading-relaxed">
           Katalog lengkap project buatan Galang Arrauf Pramudito — dari aplikasi web, desain UI/UX, hingga kreasi video. Gunakan filter
@@ -128,7 +118,7 @@ function ProjectsClientContent({ initialProjects }) {
           const isVideo = ["video-editing", "video"].includes(
             project.project_type?.toLowerCase() || ""
           );
-          const detailUrl = `/projects/${project.slug || GenerateSlug(project.title)}/${project.id}`;
+          const detailUrl = getProjectPath(project);
 
           return (
             <div key={project.id} className="group bg-card-bg border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-[0_12px_40px_rgba(0,0,0,0.4)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] flex flex-col">

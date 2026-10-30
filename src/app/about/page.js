@@ -1,48 +1,33 @@
 import { createClient } from "@supabase/supabase-js";
 import AboutClient from "./AboutClient";
+import {
+  createPageMetadata,
+  SITE_URL,
+  SITE_NAME,
+  AUTHOR_NAME,
+  JOB_TITLE,
+  PERSON_ID,
+  WEBSITE_ID,
+  breadcrumbJsonLd,
+} from "@/lib/seo";
 
-export const metadata = {
-  title: "About Me & Journey",
+export const metadata = createPageMetadata({
+  title: "Tentang Saya",
   description:
-    "Perjalanan lengkap, cerita latar belakang, pengalaman pendidikan di SMKN 2 Buduran & PENS, serta pengalaman kerja/magang di Dinas Tenaga Kerja Prov Jatim oleh Galang Arrauf Pramudito.",
+    "Profil, perjalanan, latar belakang pendidikan di SMKN 2 Buduran & PENS, serta pengalaman kerja/magang di Disnaker Prov Jatim oleh Galang Arrauf Pramudito.",
+  path: "/about",
+  type: "profile",
   keywords: [
     "Galang Arrauf Pramudito",
-    "About Galang",
-    "Web Developer Sidoarjo",
-    "Backend Developer",
+    "tentang Galang",
+    "web developer Sidoarjo",
     "D3 Teknik Informatika PENS",
     "SMKN 2 Buduran Sidoarjo",
     "Dinas Tenaga Kerja Jawa Timur",
-    "IT Support & Multimedia Intern",
-    "Full-Stack Web Developer",
-    "AI Integration",
+    "Laravel developer",
+    "Next.js developer",
   ],
-  alternates: {
-    canonical: "/about",
-  },
-  openGraph: {
-    title: "About Me & Journey — Galang Arrauf Pramudito",
-    description:
-      "Perjalanan lengkap, cerita pengalaman di SMKN 2 Buduran, Disnaker Prov Jatim, hingga Politeknik Elektronika Negeri Surabaya (PENS).",
-    url: "/about",
-    type: "profile",
-    images: [
-      {
-        url: "/image/gambar galang 2.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Galang Arrauf Pramudito Journey & Background",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "About Me & Journey — Galang Arrauf Pramudito",
-    description:
-      "Perjalanan lengkap, cerita pengalaman di SMKN 2 Buduran, Disnaker Prov Jatim, hingga Politeknik Elektronika Negeri Surabaya (PENS).",
-    images: ["/image/gambar galang 2.jpg"],
-  },
-};
+});
 
 // Revalidate every 60 seconds — ISR for fresh data
 export const revalidate = 60;
@@ -129,70 +114,53 @@ export default async function AboutPage() {
     "@graph": [
       {
         "@type": "ProfilePage",
-        "@id": "https://galangpramudito.web.id/about#webpage",
-        "url": "https://galangpramudito.web.id/about",
-        "name": `About Me & Journey — ${fullName}`,
-        "description": bio,
-        "isPartOf": {
-          "@type": "WebSite",
-          "@id": "https://galangpramudito.web.id/#website",
-          "url": "https://galangpramudito.web.id",
-          "name": "Portofolio Galang Arrauf Pramudito"
-        },
-        "breadcrumb": {
-          "@type": "BreadcrumbList",
-          "itemListElement": [
-            {
-              "@type": "ListItem",
-              "position": 1,
-              "name": "Beranda",
-              "item": "https://galangpramudito.web.id"
-            },
-            {
-              "@type": "ListItem",
-              "position": 2,
-              "name": "About Me & Journey",
-              "item": "https://galangpramudito.web.id/about"
-            }
-          ]
-        },
-        "mainEntity": {
+        "@id": `${SITE_URL}/about#webpage`,
+        url: `${SITE_URL}/about`,
+        name: `Tentang Saya — ${fullName}`,
+        description: bio,
+        isPartOf: { "@id": WEBSITE_ID },
+        breadcrumb: breadcrumbJsonLd([
+          { name: "Beranda", path: "/" },
+          { name: "Tentang Saya", path: "/about" },
+        ]),
+        mainEntity: {
           "@type": "Person",
-          "@id": "https://galangpramudito.web.id/#person",
-          "name": fullName,
-          "alternateName": "Galang Arrauf Pramudito",
-          "jobTitle": "Web Developer & Software Engineering Student",
-          "description": bio,
-          "image": "https://galangpramudito.web.id/image/gambar%20galang%202.jpg",
-          "url": "https://galangpramudito.web.id",
-          "sameAs": [
+          "@id": PERSON_ID,
+          name: fullName,
+          alternateName: AUTHOR_NAME,
+          jobTitle: `${JOB_TITLE} & Mahasiswa Teknik Informatika PENS`,
+          description: bio,
+          image: `${SITE_URL}/image/gambar%20galang%202.jpg`,
+          url: SITE_URL,
+          sameAs: [
             "https://www.linkedin.com/in/galang-pramudito/",
-            "https://github.com/galangg22"
+            "https://github.com/galangg22",
           ],
-          "alumniOf": [
+          alumniOf: [
             {
-              "@type": "EducationalOrganization",
-              "name": "Politeknik Elektronika Negeri Surabaya (PENS)"
+              "@type": "CollegeOrUniversity",
+              name: "Politeknik Elektronika Negeri Surabaya (PENS)",
             },
             {
-              "@type": "EducationalOrganization",
-              "name": "SMKN 2 Buduran Sidoarjo"
-            }
+              "@type": "HighSchool",
+              name: "SMKN 2 Buduran Sidoarjo",
+            },
           ],
-          "knowsAbout": [
-            "Web Development",
-            "PHP",
+          knowsAbout: [
             "Laravel",
-            "Next.js",
-            "React.js",
+            "PHP",
             "PostgreSQL",
-            "MySQL",
-            "Artificial Intelligence",
-            "IT Support"
-          ]
-        }
-      }
-    ]
+            "Next.js",
+            "React",
+            "Tailwind CSS",
+            "AI Integration",
+            "Automation",
+            "GitHub Actions",
+            "Docker",
+          ],
+        },
+      },
+    ],
   };
 
   return (

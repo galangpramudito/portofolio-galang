@@ -1,21 +1,43 @@
 import { createClient } from "@supabase/supabase-js";
-import { normalizeProjectType, generateSlug } from "@/lib/project-utils";
+import { normalizeProjectType, getProjectSlug } from "@/lib/project-utils";
+import { createPageMetadata, breadcrumbJsonLd, WEBSITE_ID } from "@/lib/seo";
 import ProjectsClient from "./ProjectsClient";
 
-export const metadata = {
-  title: "Projects",
-  description: "Daftar proyek dan portofolio yang pernah dikerjakan oleh Galang Arrauf Pramudito, meliputi website, API, dan integrasi AI.",
-  alternates: {
-    canonical: '/projects',
-  },
-  openGraph: {
-    title: "Projects — Galang Arrauf Pramudito",
-    description: "Daftar proyek dan portofolio yang pernah dikerjakan oleh Galang Arrauf Pramudito, meliputi website, API, dan integrasi AI.",
-    url: '/projects',
-  },
-};
+export const metadata = createPageMetadata({
+  title: "Portofolio Project",
+  description:
+    "Katalog lengkap project buatan Galang Arrauf Pramudito — aplikasi web, integrasi AI, desain UI/UX, dan kreasi video. Filter berdasarkan kategori.",
+  path: "/projects",
+  keywords: [
+    "portofolio project",
+    "project Galang Arrauf",
+    "web development project",
+    "Laravel project",
+    "Next.js project",
+    "aplikasi web",
+  ],
+});
 
 export const revalidate = 3600; // 🚀 PERF: Revalidate 1 jam (ISR) agar tidak memberatkan server
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "CollectionPage",
+      "@id": "https://galangpramudito.web.id/projects#webpage",
+      url: "https://galangpramudito.web.id/projects",
+      name: "Portofolio Project — Galang Arrauf Pramudito",
+      description:
+        "Katalog lengkap project buatan Galang Arrauf Pramudito — aplikasi web, integrasi AI, desain UI/UX, dan kreasi video.",
+      isPartOf: { "@id": WEBSITE_ID },
+      breadcrumb: breadcrumbJsonLd([
+        { name: "Beranda", path: "/" },
+        { name: "Portofolio Project", path: "/projects" },
+      ]),
+    },
+  ],
+};
 
 async function getProjects() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,7 +61,7 @@ async function getProjects() {
     const projectType = normalizeProjectType(
       p.project_types?.slug || p.project_type || p.type
     );
-    const slug = p.slug || generateSlug(p.title);
+    const slug = getProjectSlug(p);
 
     return {
       id: p.id,
@@ -65,5 +87,13 @@ async function getProjects() {
 export default async function ProjectsPage() {
   const projects = await getProjects();
 
-  return <ProjectsClient initialProjects={projects} />;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <ProjectsClient initialProjects={projects} />
+    </>
+  );
 }

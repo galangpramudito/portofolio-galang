@@ -3,6 +3,16 @@ import "./globals.css";
 import { ThemeProviderComponent } from "./providers";
 import { TopLoader } from "next-top-loader";
 import { SmoothScroll } from "./components/SmoothScroll";
+import {
+  SITE_URL,
+  SITE_NAME,
+  AUTHOR_NAME,
+  JOB_TITLE,
+  DEFAULT_TITLE,
+  DEFAULT_DESCRIPTION,
+  PERSON_ID,
+  WEBSITE_ID,
+} from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,54 +48,105 @@ export const viewport = {
   initialScale: 1,
 };
 
+// Icons, apple-icon, opengraph-image & manifest come from file conventions in src/app
 export const metadata = {
-  metadataBase: new URL("https://galangpramudito.web.id"),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "Galang Arrauf Pramudito — Web Developer",
-    template: "%s — Galang Arrauf Pramudito",
+    default: DEFAULT_TITLE,
+    template: `%s — ${AUTHOR_NAME}`,
   },
-  description:
-    "Portfolio Galang Arrauf Pramudito — Web Developer (Laravel, PHP, PostgreSQL). AI Integration & Automation. Open to internship & freelance.",
-  keywords:
-    "web developer, laravel, php, postgresql, ai integration, automation, backend developer, portfolio, galang arrauf, pens, internship, freelance",
-  authors: [{ name: "Galang Arrauf Pramudito" }],
+  description: DEFAULT_DESCRIPTION,
+  applicationName: SITE_NAME,
+  keywords: [
+    "Galang Arrauf Pramudito",
+    "web developer",
+    "web developer Sidoarjo",
+    "Laravel",
+    "PHP",
+    "PostgreSQL",
+    "Next.js",
+    "integrasi AI",
+    "portofolio",
+    "internship",
+    "freelance",
+  ],
+  authors: [{ name: AUTHOR_NAME, url: SITE_URL }],
+  creator: AUTHOR_NAME,
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: {
-      default: "Galang Arrauf Pramudito — Web Developer",
-      template: "%s — Galang Arrauf Pramudito",
-    },
-    description:
-      "Portfolio Galang Arrauf Pramudito — Web Developer specializing in Laravel & PHP with AI Integration. Open to internship & freelance opportunities.",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
     url: "/",
     type: "website",
-    siteName: "Galang Arrauf Pramudito Portfolio",
-    images: [
-      {
-        url: "/og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Galang Arrauf Portfolio Preview",
-      },
-    ],
+    siteName: SITE_NAME,
+    locale: "id_ID",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Galang Arrauf Pramudito — Full-Stack Dev (Laravel + Next.js)",
-    description: "Portfolio Galang Arrauf Pramudito — Open to internship & freelance",
-    images: ["/og-image.jpg"],
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
   },
-  icons: {
-    icon: '/favicon.ico?v=2',
-    apple: '/apple-icon.png'
-  },
-  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
+    title: "Galang",
     statusBarStyle: 'black-translucent',
   },
+};
+
+const siteJsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Person",
+      "@id": PERSON_ID,
+      name: AUTHOR_NAME,
+      givenName: "Galang",
+      familyName: "Pramudito",
+      url: SITE_URL,
+      image: `${SITE_URL}/image/gambar%20galang%202.jpg`,
+      jobTitle: JOB_TITLE,
+      description:
+        "Web developer asal Sidoarjo yang berfokus pada Laravel, PHP, PostgreSQL, Next.js, serta integrasi AI & otomasi. Terbuka untuk internship dan freelance.",
+      address: {
+        "@type": "PostalAddress",
+        addressLocality: "Sidoarjo",
+        addressRegion: "Jawa Timur",
+        addressCountry: "ID",
+      },
+      alumniOf: [
+        { "@type": "CollegeOrUniversity", name: "Politeknik Elektronika Negeri Surabaya (PENS)" },
+        { "@type": "HighSchool", name: "SMKN 2 Buduran Sidoarjo" },
+      ],
+      knowsAbout: [
+        "Laravel",
+        "PHP",
+        "PostgreSQL",
+        "Next.js",
+        "React",
+        "Tailwind CSS",
+        "AI Integration",
+        "Automation",
+        "GitHub Actions",
+        "Docker",
+      ],
+      sameAs: [
+        "https://www.linkedin.com/in/galang-pramudito/",
+        "https://github.com/galangg22",
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": WEBSITE_ID,
+      url: SITE_URL,
+      name: SITE_NAME,
+      description: DEFAULT_DESCRIPTION,
+      inLanguage: "id-ID",
+      author: { "@id": PERSON_ID },
+      publisher: { "@id": PERSON_ID },
+    },
+  ],
 };
 
 export default function RootLayout({ children }) {
@@ -112,50 +173,7 @@ export default function RootLayout({ children }) {
         {/* ✅ SEO: Structured Data (JSON-LD) */}
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify([
-              {
-                "@context": "https://schema.org",
-                "@type": "Person",
-                name: "Galang Arrauf Pramudito",
-                givenName: "Galang",
-                familyName: "Pramudito",
-                url: "https://galangpramudito.web.id",
-                image: "https://galangpramudito.web.id/image/gambar%20galang%202.jpg",
-                jobTitle: "Web Developer",
-                description:
-                  "Web developer spesialis Laravel, PHP, dan PostgreSQL dengan keahlian AI Integration & Automation. Terbuka untuk internship dan freelance.",
-                knowsAbout: [
-                  "Laravel",
-                  "PHP",
-                  "PostgreSQL",
-                  "Next.js",
-                  "React",
-                  "Tailwind CSS",
-                  "AI Integration",
-                  "Automation",
-                  "GitHub Actions",
-                  "Docker",
-                ],
-                sameAs: [
-                  "https://www.linkedin.com/in/galang-pramudito/",
-                  "https://github.com/galangg22",
-                ],
-              },
-              {
-                "@context": "https://schema.org",
-                "@type": "WebSite",
-                url: "https://galangpramudito.web.id",
-                name: "Galang Arrauf — Portfolio",
-                description:
-                  "Portfolio Galang Arrauf Pramudito — Web Developer. Laravel, PHP, PostgreSQL, AI Integration.",
-                author: {
-                  "@type": "Person",
-                  name: "Galang Arrauf Pramudito",
-                },
-              },
-            ]),
-          }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd) }}
         />
 
       </head>

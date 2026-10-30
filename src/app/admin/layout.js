@@ -2,6 +2,14 @@ import AdminNav from './components/AdminNav'
 import { ToastProvider } from './components/ToastProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
+export const metadata = {
+  title: 'Admin Panel',
+  robots: {
+    index: false,
+    follow: false,
+  },
+}
+
 export default function AdminLayout({ children }) {
   return (
     <ErrorBoundary>

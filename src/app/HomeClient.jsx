@@ -12,6 +12,7 @@ import { DarkModeToggle } from "@/app/components/DarkModeToggle";
 import Zoom from 'react-medium-image-zoom';
 import 'react-medium-image-zoom/dist/styles.css';
 import { AnimatedTiles } from '@/app/components/AnimatedTiles';
+import { getProjectPath } from '@/lib/project-utils';
 
 // 🚀 PERF: Lazy-load non-critical components untuk mengurangi initial bundle
 const DynamicIsland = dynamic(() => import("@/app/components/DynamicIsland").then(mod => mod.DynamicIsland), {
@@ -741,7 +742,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
                           <h3 className="text-2xl lg:text-3xl font-bold mb-4 text-white tracking-tight leading-tight">
                             {spotlight.id ? (
                               <Link
-                                href={`/projects/${(spotlight.slug || spotlight.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60))}/${spotlight.id}`}
+                                href={getProjectPath(spotlight)}
                                 className="hover:text-accent transition-colors"
                               >
                                 {spotlight.title}
@@ -772,7 +773,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
                             )}
                             {spotlight.id && (
                               <Link
-                                href={`/projects/${(spotlight.slug || spotlight.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60))}/${spotlight.id}`}
+                                href={getProjectPath(spotlight)}
                                 className="work-btn-ghost group/btn inline-flex items-center gap-2 text-white font-bold text-sm bg-white/[0.06] px-5 py-2.5 rounded-full hover:bg-white/[0.12] border border-white/[0.08]"
                               >
                                 <i className="ri-eye-line text-base" /> Details
@@ -809,7 +810,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
                                   <h3 className="text-base font-bold mb-2 text-white tracking-tight">
                                     {project.id ? (
                                       <Link
-                                        href={`/projects/${(project.slug || project.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60))}/${project.id}`}
+                                        href={getProjectPath(project)}
                                         className="hover:text-accent transition-colors"
                                       >
                                         {project.title}
@@ -832,7 +833,7 @@ export default function HomeClient({ initialSkills, initialProjects, initialCert
                                     )}
                                     {project.id && (
                                       <Link
-                                        href={`/projects/${(project.slug || project.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60))}/${project.id}`}
+                                        href={getProjectPath(project)}
                                         className="inline-flex items-center gap-1.5 text-gray-300 font-semibold text-xs bg-white/[0.04] px-4 py-2 rounded-full hover:bg-white/[0.10] hover:text-white border border-white/[0.06]"
                                       >
                                         <i className="ri-eye-line text-sm"></i> Details

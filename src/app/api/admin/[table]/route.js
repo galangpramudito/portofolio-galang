@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
-import { generateSlug } from '@/lib/project-utils'
+import { slugify, uniqueSlug } from '@/lib/project-utils'
 import { isValidSession } from '@/lib/session'
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +30,16 @@ function typeSlug(name) {
 // PostgREST "column not found" — lets slug writes degrade gracefully if the column is missing
 function isMissingColumn(error, column) {
   return (error?.code === 'PGRST204' || error?.code === '42703') && error?.message?.includes(column)
+}
+
+// Deterministic project slug; numeric suffix only when another project already uses it
+async function projectSlug(title, excludeId) {
+  const base = slugify(title)
+  let query = supabaseAdmin.from('projects').select('slug').like('slug', `${base}%`)
+  if (excludeId) query = query.neq('id', excludeId)
+  const { data, error } = await query
+  if (error) return base
+  return uniqueSlug(title, (data || []).map((r) => r.slug))
 }
 
 function unauthorizedResponse() {
@@ -123,7 +133,7 @@ export async function POST(req, { params }) {
       if (!safeBody.title || !safeBody.project_type_id) {
         return badRequestResponse('Title and project_type_id are required')
       }
-      safeBody.slug = generateSlug(safeBody.title)
+      safeBody.slug = await projectSlug(safeBody.title)
     }
     if (table === 'project_types') {
       if (!safeBody.name) {
@@ -235,7 +245,7 @@ export async function PUT(req, { params }) {
         const { data: existing, error: slugError } = await supabaseAdmin
           .from('projects').select('slug').eq('id', id).maybeSingle()
         if (!slugError && existing && !existing.slug) {
-          safeBody.slug = generateSlug(safeBody.title)
+          safeBody.slug = await projectSlug(safeBody.title, id)
         }
       }
     }

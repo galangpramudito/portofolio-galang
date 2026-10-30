@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import HomeClient from "./HomeClient";
+import { getProjectSlug } from "@/lib/project-utils";
+import { createPageMetadata, DEFAULT_TITLE, DEFAULT_DESCRIPTION } from "@/lib/seo";
 
 // 🚀 PERF OPTIMIZATION: Revalidate setiap 1 jam (ISR). 
 // Data di-fetch dan di-build statis di server, 100% SEO-friendly & Instan LCP!
@@ -52,11 +54,9 @@ async function getPortfolioData() {
       if (typeSlug === "design") typeSlug = "desain";
       if (typeSlug === "video" || typeSlug === "video editing") typeSlug = "video-editing";
 
-      const slug = p.slug || p.title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
-
       return {
         id: p.id,
-        slug,
+        slug: getProjectSlug(p),
         title: p.title,
         image: p.thumbnail_url || null,
         gradient: p.thumbnail_url ? null : "from-neutral-900 via-neutral-800 to-black",
@@ -88,25 +88,11 @@ async function getPortfolioData() {
   };
 }
 
-export async function generateMetadata() {
-  const data = await getPortfolioData();
-  const projectTypesStr = data.projectTypes ? data.projectTypes.map(t => t.name).join(', ') : '';
-  const topProjectsStr = data.projects ? data.projects.slice(0, 3).map(p => p.title).join(', ') : '';
-  
-  return {
-    title: 'Galang Arrauf Pramudito — Web Developer',
-    description: `Portfolio Galang Arrauf Pramudito — Web Developer. Categories: ${projectTypesStr}. Featured projects: ${topProjectsStr}. Open to internship & freelance.`,
-    keywords: `web developer, laravel, php, postgresql, ai integration, ${projectTypesStr}`,
-    alternates: {
-      canonical: '/',
-    },
-    openGraph: {
-      title: 'Galang Arrauf Pramudito — Web Developer',
-      description: `Portfolio Galang Arrauf Pramudito — Web Developer. Categories: ${projectTypesStr}. Featured projects: ${topProjectsStr}. Open to internship & freelance.`,
-      url: '/',
-    }
-  };
-}
+export const metadata = createPageMetadata({
+  absoluteTitle: DEFAULT_TITLE,
+  description: DEFAULT_DESCRIPTION,
+  path: "/",
+});
 
 export default async function HomePage() {
   const data = await getPortfolioData();

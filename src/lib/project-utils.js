@@ -8,16 +8,37 @@ export function normalizeProjectType(type) {
   return t;
 }
 
-export function generateSlug(title) {
-  const base = title
+export function slugify(text) {
+  if (!text) return "project";
+  const slug = String(text)
     .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // strip diacritics
     .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
-  const suffix = Math.random().toString(36).substring(2, 6);
-  return `${base}-${suffix}`;
+    .slice(0, 60)
+    .replace(/^-|-$/g, "");
+  return slug || "project";
+}
+
+// Stored slug wins; otherwise derive deterministically so URLs stay stable across renders
+export function getProjectSlug(project) {
+  return project?.slug || slugify(project?.title);
+}
+
+export function getProjectPath(project) {
+  return `/projects/${getProjectSlug(project)}/${project.id}`;
+}
+
+// Unique variant for inserts: suffix only when the base slug is already taken
+export function uniqueSlug(title, takenSlugs = []) {
+  const base = slugify(title);
+  if (!takenSlugs.includes(base)) return base;
+  let n = 2;
+  while (takenSlugs.includes(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
 }
 
 export const TYPE_CONFIG = {
@@ -68,7 +89,7 @@ export function transformProject(p, imagesData = null) {
 
   return {
     id: p.id,
-    slug: p.slug || generateSlug(p.title),
+    slug: getProjectSlug(p),
     title: p.title,
     description: p.description,
     image: p.thumbnail_url || null,
@@ -91,5 +112,6 @@ export function transformProject(p, imagesData = null) {
       ? imagesData.filter((img) => img.project_id === p.id)
       : [],
     created_at: p.created_at,
+    updated_at: p.updated_at,
   };
 }

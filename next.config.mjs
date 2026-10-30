@@ -19,7 +19,7 @@ const nextConfig = {
     minimumCacheTTL: 86400, // 24 jam
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    qualities: [75, 80], // ✅ Support quality 75 & 80
+    qualities: [75, 80, 85, 90], // ✅ Support quality 75, 80, 85 & 90
   },
   headers: async () => {
     return [

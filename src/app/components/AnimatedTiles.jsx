@@ -8,7 +8,7 @@ export function AnimatedTiles({
   className = ""
 }) {
   const containerRef = useRef(null)
-  const [transform, setTransform] = useState("perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)")
+  const [transform, setTransform] = useState("none")
   const [glare, setGlare] = useState({ x: 50, y: 50, opacity: 0 })
 
   const handleMouseMove = (e) => {
@@ -35,7 +35,7 @@ export function AnimatedTiles({
   }
 
   const handleMouseLeave = () => {
-    setTransform("perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)")
+    setTransform("none")
     setGlare(prev => ({ ...prev, opacity: 0 }))
   }
 
@@ -48,16 +48,17 @@ export function AnimatedTiles({
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="relative w-full h-full rounded-2xl overflow-hidden bg-gray-100 dark:bg-card-bg shadow-xl dark:shadow-2xl transition-transform duration-200 ease-out border border-black/5 dark:border-white/10"
-        style={{ transform, transformStyle: "preserve-3d" }}
+        className="relative w-full h-full rounded-2xl overflow-hidden bg-gray-100 dark:bg-card-bg shadow-xl dark:shadow-2xl transition-transform duration-200 ease-out border border-black/5 dark:border-white/10 [backface-visibility:hidden] [transform:translateZ(0)]"
+        style={{ transform, transformStyle: transform === "none" ? "flat" : "preserve-3d" }}
       >
         <Image
           src={imageUrl}
           alt="Profile"
           fill
-          className="object-cover transition-transform duration-700 ease-out hover:scale-105"
+          className="object-cover transition-transform duration-700 ease-out hover:scale-105 [backface-visibility:hidden] [transform:translateZ(0)]"
           priority
-          sizes="(max-width: 640px) 240px, (max-width: 1024px) 280px, 380px"
+          quality={90}
+          sizes="(max-width: 640px) 90vw, (max-width: 1024px) 50vw, 500px"
         />
         
         {/* Interactive Glare overlay */}

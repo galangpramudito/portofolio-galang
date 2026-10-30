@@ -343,12 +343,12 @@ export default function AboutClient({ initialTimeline = [], initialProfile = nul
                 </span>
               </h1>
               <p className="text-lg md:text-xl text-gray-300 font-normal leading-relaxed mb-6">
-                Web Developer dari Sidoarjo yang berfokus pada arsitektur backend tangguh, pengelolaan database efisien, dan integrasi Artificial Intelligence untuk memecahkan persoalan dunia nyata.
-              </p>
-              <p className="text-sm md:text-base text-gray-400 font-light leading-relaxed mb-6">
-                Bagi saya, pemrograman bukan sekadar merangkai baris kode, melainkan seni membangun solusi yang handal, terukur, dan berdampak nyata. Perjalanan saya ditempa mulai dari bangku SMK jurusan Rekayasa Perangkat Lunak, pengalaman nyata saat magang IT Support di instansi pemerintahan provinsi Jawa Timur, hingga saat ini memperdalam ilmu Teknik Informatika di Politeknik Elektronika Negeri Surabaya (PENS).
+                Web Developer dari Sidoarjo yang berfokus pada pengembangan sistem backend, arsitektur database, serta integrasi Artificial Intelligence untuk membangun solusi digital yang andal dan bermanfaat.
               </p>
 
+              <p className="text-sm md:text-base text-gray-400 font-light leading-relaxed mb-6">
+                Saya percaya bahwa pemrograman bukan sekadar menulis baris kode, melainkan tentang merancang solusi yang efisien, terukur, dan mampu menjawab kebutuhan nyata. Dengan latar belakang Rekayasa Perangkat Lunak, pengalaman di bidang IT Support pada instansi pemerintahan Provinsi Jawa Timur, serta pendidikan Teknik Informatika di Politeknik Elektronika Negeri Surabaya (PENS), saya terus mengembangkan kemampuan dalam rekayasa perangkat lunak, pemecahan masalah, dan teknologi modern.
+              </p>
               {/* Quick info pills */}
               <div className="flex flex-wrap gap-2.5 pt-2">
                 <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-card-bg border border-white/10 text-xs font-medium text-gray-200 shadow-sm">
@@ -435,8 +435,8 @@ export default function AboutClient({ initialTimeline = [], initialProfile = nul
               <button
                 onClick={() => setActiveTab("all")}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === "all"
-                    ? "bg-accent text-bg-dark font-bold shadow-md"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-accent text-bg-dark font-bold shadow-md"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 Semua
@@ -444,8 +444,8 @@ export default function AboutClient({ initialTimeline = [], initialProfile = nul
               <button
                 onClick={() => setActiveTab("education")}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === "education"
-                    ? "bg-accent text-bg-dark font-bold shadow-md"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-accent text-bg-dark font-bold shadow-md"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 Pendidikan
@@ -453,8 +453,8 @@ export default function AboutClient({ initialTimeline = [], initialProfile = nul
               <button
                 onClick={() => setActiveTab("experience")}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === "experience"
-                    ? "bg-accent text-bg-dark font-bold shadow-md"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-accent text-bg-dark font-bold shadow-md"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 Pengalaman

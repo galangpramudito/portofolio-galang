@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
+import { SITE_URL } from '@/lib/seo';
+import { getProjectPath } from '@/lib/project-utils';
 
 export default async function sitemap() {
-  const baseUrl = 'https://galangpramudito.web.id';
+  const baseUrl = SITE_URL;
 
   // Static pages
   const staticPages = [
@@ -39,16 +41,18 @@ export default async function sitemap() {
 
     if (url && key) {
       const supabase = createClient(url, key);
-      const { data: projects } = await supabase
+      const { data: projects, error } = await supabase
         .from('projects')
-        .select('id, slug, updated_at, created_at')
+        .select('id, title, slug, updated_at, created_at')
         .neq('status', 'private')
         .order('created_at', { ascending: false });
 
-      if (projects) {
+      if (error) {
+        console.error('Sitemap: Supabase query error:', error.message);
+      } else if (projects) {
         projectPages = projects.map((p) => ({
-          url: `${baseUrl}/projects/${p.slug || p.id}/${p.id}`,
-          lastModified: (p.updated_at || p.created_at || new Date().toISOString()),
+          url: `${baseUrl}${getProjectPath(p)}`,
+          lastModified: p.updated_at || p.created_at || new Date().toISOString(),
           priority: 0.8,
           changeFrequency: 'monthly',
         }));
